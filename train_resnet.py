@@ -4,16 +4,7 @@ import torchsummary
 
 from models.resnet import ResNet
 
-
-def main():
-    nr_epochs = 1
-
-    resnet = ResNet()
-    # torchsummary.summary(resnet, (3, 128, 128))
-
-    for epoch in range(nr_epochs):
-        acc, loss = train(resnet)
-        acc, loss = eval(resnet)
+import sofa
 
 
 def train(model):
@@ -30,5 +21,20 @@ def eval(model):
     return acc, loss
 
 
+def main():
+    nr_epochs = 1
+
+    resnet = ResNet()
+    # torchsummary.summary(resnet, (3, 128, 128))
+
+    for epoch in range(nr_epochs):
+        acc, loss = train(resnet)
+        acc, loss = eval(resnet)
+
+
 if __name__ == "__main__":
     main()
+    # hrtf = sofa.Database.open("./utils/KEMAR_Knowl_EarSim_SmallEars_FreeFieldComp_48kHz.sofa")
+    # hrtf.Metadata.dump()
+    # source_positions = hrtf.Source.Position.get_values(system="cartesian")
+    # print(np.asarray(source_positions).shape)
