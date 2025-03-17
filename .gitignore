@@ -2,3 +2,5 @@ env/*
 results/*
 
 */__pycache__
+
+pycochleagram/*
