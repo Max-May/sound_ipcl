@@ -14,31 +14,12 @@ from pycochleagram import cochleagram as cgram
 from pycochleagram import erbfilter as erb
 from pycochleagram import subband as sb
 
-# Directories
-dir_sounds = '/Users/kiki.vanderheijden/Documents/PythonScripts_Local/ESC-50-master/audio'
-sound_name = '1-137-A-32.wav'
+from tqdm import tqdm
 
-# Specifications
-target_samplerate = 480000   # sample rate  for this application
-n = 17 # the nr of filters and sampling factor interact,  it's n*2 + 2*sample_factor + 1 filters if sample factor = 1 and full_filter = True
-        # here, input = 17 such that output = 39 filters, if then remove first and last filter, 39 filters are left
-sample_factor = 2 # reflects human hearing according to McDermott function 'human_cochleagram'
-numfilt = n*2 + 2*sample_factor + 1 # this results in 39 filters
-retmode = 'subband' #subband, envs
-low_lim = 45 # reflecting lower limit of human hearing
-hi_lim = 16975 # reflecting upper limit of human hearing     
-    
-# Generate filters
-# load a sound to generate filters
-waveform, sample_rate = torchaudio.load(os.path.join(dir_sounds,sound_name)) 
-# upsample to 48 kHz if needed
-if sample_rate < target_samplerate:
-    waveform = torchaudio.functional.resample(waveform, orig_freq = sample_rate, new_freq = target_samplerate)
-# generate filters
-erb_kwargs = {}
-filts, _, _ = erb.make_erb_cos_filters_nx(waveform.shape[1],
-    target_samplerate, n, low_lim, hi_lim, sample_factor, padding_size=None,
-    full_filter=True, strict=False, **erb_kwargs)
+import matplotlib
+import matplotlib.pyplot as plt 
+from matplotlib.pyplot import imshow, show
+# matplotlib.use('gtk3agg') 
 
 
 def ownpow(a, b):
@@ -55,14 +36,6 @@ def ownpow(a, b):
     return a'''
     return np.sign(a) * np.abs(a) ** b
 
-# Deinfe low-pass filtering, used after half-wave rectification to simulate upper limit of phase locking in auditory nerve
-cutoff_freq = 4000   # Cut-off frequency
-num_taps = 4097      # Number of filter taps
-transition_width = 100  # Transition width in Hz
-filter_coefficients = firwin(num_taps, cutoff_freq, window=('kaiser', 14), fs=target_samplerate) # calculate filter coefficients using a Kaiser-windowed sinc function, beta = 14
-# Define downsampling
-ds_factor = int(np.floor(target_samplerate/8000)) # Downsample to 8 kHz
-custom_downsample_fx = partial(decimate, q = ds_factor, axis=1, ftype='fir', zero_phase=True)
 
 # Function to perform FFT-based filtering for a 1D signal
 def fft_filter(signal, filter_coefficients):
@@ -96,6 +69,7 @@ def fft_filter(signal, filter_coefficients):
     
     return filtered_signal
 
+
 # Function to perform zero-phase filtering (like filtfilt) using FFT for a 1D signal
 def fft_filtfilt(signal, filter_coefficients):
     """
@@ -119,6 +93,7 @@ def fft_filtfilt(signal, filter_coefficients):
     
     return zero_phase_filtered
 
+
 # Function to apply FFT-based filtering to each row of a 2D array
 def fft_filtfilt_2d(signal_2d, filter_coefficients):
     """
@@ -141,34 +116,87 @@ def fft_filtfilt_2d(signal_2d, filter_coefficients):
     return filtered_signal_2d
 
 
-# Load sound as torch tensor
-waveform, sample_rate = torchaudio.load(os.path.join(dir_sounds,sound_name)) # Load 
+def main():
+    # Directories
+    # dir_sounds = '/Users/kiki.vanderheijden/Documents/PythonScripts_Local/ESC-50-master/audio'
+    # sound_name = '1-137-A-32.wav'
+    dir_sounds = '../Data/audio/bal_train'
+    sound_name = '00M9FhCet6s.flac'
 
-# Upsample to 48 kHz if needed
-if sample_rate < target_samplerate:
-    waveform = torchaudio.functional.resample(waveform, orig_freq = sample_rate, new_freq = target_samplerate)
+    # Specifications
+    target_samplerate = 48000   # sample rate  for this application
+    n = 17 # the nr of filters and sampling factor interact,  it's n*2 + 2*sample_factor + 1 filters if sample factor = 1 and full_filter = True
+            # here, input = 17 such that output = 39 filters, if then remove first and last filter, 39 filters are left
+    sample_factor = 2 # reflects human hearing according to McDermott function 'human_cochleagram'
+    numfilt = n*2 + 2*sample_factor + 1 # this results in 39 filters
+    retmode = 'subband' #subband, envs
+    low_lim = 45 # reflecting lower limit of human hearing
+    hi_lim = 16975 # reflecting upper limit of human hearing     
+        
+    # Generate filters
+    # load a sound to generate filters
+    waveform, sample_rate = torchaudio.load(os.path.join(dir_sounds,sound_name)) 
+    # upsample to 48 kHz if needed
+    if sample_rate < target_samplerate:
+        waveform = torchaudio.functional.resample(waveform, orig_freq = sample_rate, new_freq = target_samplerate)
 
-# Generate an empty array for the cochleagram
-coch_all = np.empty([np.shape(waveform)[0],numfilt,int(np.shape(waveform)[1]/ds_factor)]) # to accomodate multi-channel data, dimensions = [channels, filters, time]
+    # generate filters
+    erb_kwargs = {}
+    filts, _, _ = erb.make_erb_cos_filters_nx(waveform.shape[1],
+        target_samplerate, n, low_lim, hi_lim, sample_factor, padding_size=None,
+        full_filter=True, strict=False, **erb_kwargs)
+    # print(filts)
 
-for j in range(np.shape(waveform)[0]): # to accomodate multi-channel data
+    # Deinfe low-pass filtering, used after half-wave rectification to simulate upper limit of phase locking in auditory nerve
+    cutoff_freq = 4000   # Cut-off frequency
+    num_taps = 4097      # Number of filter taps
+    transition_width = 100  # Transition width in Hz
+    filter_coefficients = firwin(num_taps, cutoff_freq, window=('kaiser', 14), fs=target_samplerate) # calculate filter coefficients using a Kaiser-windowed sinc function, beta = 14
+    # Define downsampling
+    ds_factor = int(np.floor(target_samplerate/8000)) # Downsample to 8 kHz
+    custom_downsample_fx = partial(decimate, q = ds_factor, axis=1, ftype='fir', zero_phase=True)
 
-    # generate subbands
-    coch_temp = sb.generate_subbands(waveform[j], filts, padding_size=None, fft_mode='auto', debug_ret_all=False)
+    # # Load sound as torch tensor
+    # waveform, sample_rate = torchaudio.load(os.path.join(dir_sounds,sound_name)) # Load 
 
-    # apply non-linearity (this has to be done here because the cochleagram function only does it for envelopes
-    coch_temp = ownpow(coch_temp, 3.0 / 10.0)  # add epsilon to not take power of 0
+    # # Upsample to 48 kHz if needed
+    # if sample_rate < target_samplerate:
+    #     waveform = torchaudio.functional.resample(waveform, orig_freq = sample_rate, new_freq = target_samplerate)
 
-    # half_wave rectification
-    coch_temp = np.maximum(coch_temp,0) 
+    # Generate an empty array for the cochleagram
+    coch_all = np.empty([np.shape(waveform)[0],numfilt,int(np.shape(waveform)[1]/ds_factor)]) # to accomodate multi-channel data, dimensions = [channels, filters, time]
 
-    # low-pass filtering
-    for i in range(np.shape(coch_temp)[0]):
-        coch_temp[i,:] = fft_filtfilt(coch_temp[i,:], filter_coefficients)
+    print('Generating cochleagram')
+    # for j in range(np.shape(waveform)[0]): # to accomodate multi-channel data
+    for j in tqdm(range(np.shape(waveform)[0])):
+        # generate subbands
+        coch_temp = sb.generate_subbands(waveform[j], filts, padding_size=None, fft_mode='auto', debug_ret_all=False)
 
-    # downsampling
-    coch_temp = custom_downsample_fx(coch_temp)
-    
-    # add to array
-    coch_all[j,:,:] = coch_temp
+        # apply non-linearity (this has to be done here because the cochleagram function only does it for envelopes
+        coch_temp = ownpow(coch_temp, 3.0 / 10.0)  # add epsilon to not take power of 0
 
+        # half_wave rectification
+        coch_temp = np.maximum(coch_temp,0) 
+
+        # low-pass filtering
+        for i in range(np.shape(coch_temp)[0]):
+            coch_temp[i,:] = fft_filtfilt(coch_temp[i,:], filter_coefficients)
+
+        # downsampling
+        coch_temp = custom_downsample_fx(coch_temp)
+        
+        # add to array
+        coch_all[j,:,:] = coch_temp
+
+    print(coch_all.shape)
+    print(coch_all)
+
+    fig, axs = plt.subplots(2,1)
+    axs[0].imshow(coch_all[0])
+    axs[1].imshow(coch_all[1])
+
+    plt.show()
+
+
+if __name__ == '__main__':
+    main()
