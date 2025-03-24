@@ -2,6 +2,9 @@
 
 import os
 import numpy as np
+from typing import Union
+
+import torch
 import torchaudio
 from scipy.signal import welch, decimate, filtfilt, firwin, windows
 import os 
@@ -15,11 +18,6 @@ from pycochleagram import erbfilter as erb
 from pycochleagram import subband as sb
 
 from tqdm import tqdm
-
-import matplotlib
-import matplotlib.pyplot as plt 
-from matplotlib.pyplot import imshow, show
-# matplotlib.use('gtk3agg') 
 
 
 def ownpow(a, b):
@@ -116,26 +114,23 @@ def fft_filtfilt_2d(signal_2d, filter_coefficients):
     return filtered_signal_2d
 
 
-def main():
-    # Directories
-    # dir_sounds = '/Users/kiki.vanderheijden/Documents/PythonScripts_Local/ESC-50-master/audio'
-    # sound_name = '1-137-A-32.wav'
-    dir_sounds = '../Data/audio/bal_train'
-    sound_name = '00M9FhCet6s.flac'
+def generate_cochleagram(waveform: torch.Tensor, 
+                        sample_rate: int, 
+                        dtype: Union[torch.Tensor, np.ndarray] = np.ndarray,
+                        debug: bool = False,
+                        ) -> Union[torch.Tensor, np.ndarray]:
+    assert dtype == np.ndarray, f"Function does not support {dtype} yet!"
 
     # Specifications
-    target_samplerate = 48000   # sample rate  for this application
+    target_samplerate = 48000   # sample rate of 48 kHz for this application
     n = 17 # the nr of filters and sampling factor interact,  it's n*2 + 2*sample_factor + 1 filters if sample factor = 1 and full_filter = True
             # here, input = 17 such that output = 39 filters, if then remove first and last filter, 39 filters are left
     sample_factor = 2 # reflects human hearing according to McDermott function 'human_cochleagram'
     numfilt = n*2 + 2*sample_factor + 1 # this results in 39 filters
     retmode = 'subband' #subband, envs
     low_lim = 45 # reflecting lower limit of human hearing
-    hi_lim = 16975 # reflecting upper limit of human hearing     
+    hi_lim = 16975 # reflecting upper limit of human hearing 
         
-    # Generate filters
-    # load a sound to generate filters
-    waveform, sample_rate = torchaudio.load(os.path.join(dir_sounds,sound_name)) 
     # upsample to 48 kHz if needed
     if sample_rate < target_samplerate:
         waveform = torchaudio.functional.resample(waveform, orig_freq = sample_rate, new_freq = target_samplerate)
@@ -145,7 +140,6 @@ def main():
     filts, _, _ = erb.make_erb_cos_filters_nx(waveform.shape[1],
         target_samplerate, n, low_lim, hi_lim, sample_factor, padding_size=None,
         full_filter=True, strict=False, **erb_kwargs)
-    # print(filts)
 
     # Deinfe low-pass filtering, used after half-wave rectification to simulate upper limit of phase locking in auditory nerve
     cutoff_freq = 4000   # Cut-off frequency
@@ -156,19 +150,11 @@ def main():
     ds_factor = int(np.floor(target_samplerate/8000)) # Downsample to 8 kHz
     custom_downsample_fx = partial(decimate, q = ds_factor, axis=1, ftype='fir', zero_phase=True)
 
-    # # Load sound as torch tensor
-    # waveform, sample_rate = torchaudio.load(os.path.join(dir_sounds,sound_name)) # Load 
-
-    # # Upsample to 48 kHz if needed
-    # if sample_rate < target_samplerate:
-    #     waveform = torchaudio.functional.resample(waveform, orig_freq = sample_rate, new_freq = target_samplerate)
-
     # Generate an empty array for the cochleagram
     coch_all = np.empty([np.shape(waveform)[0],numfilt,int(np.shape(waveform)[1]/ds_factor)]) # to accomodate multi-channel data, dimensions = [channels, filters, time]
 
-    print('Generating cochleagram')
     # for j in range(np.shape(waveform)[0]): # to accomodate multi-channel data
-    for j in tqdm(range(np.shape(waveform)[0])):
+    for j in tqdm(range(np.shape(waveform)[0]), desc='Generating cochleagrams', disable=not debug):
         # generate subbands
         coch_temp = sb.generate_subbands(waveform[j], filts, padding_size=None, fft_mode='auto', debug_ret_all=False)
 
@@ -187,16 +173,33 @@ def main():
         
         # add to array
         coch_all[j,:,:] = coch_temp
+    return coch_all
 
-    print(coch_all.shape)
-    print(coch_all)
 
-    fig, axs = plt.subplots(2,1)
-    axs[0].imshow(coch_all[0])
-    axs[1].imshow(coch_all[1])
+def main():
+    # Directories
+    # dir_sounds = '/Users/kiki.vanderheijden/Documents/PythonScripts_Local/ESC-50-master/audio'
+    # sound_name = '1-137-A-32.wav'
+    dir_sounds = '../Data/audio/bal_train'
+    sound_name = '01q8wKX4XEQ.flac'
 
-    plt.show()
+    # Temporary example sound files of the bal_train audio_set:
+    # sound_names = [
+    # '00M9FhCet6s.flac',
+    # '00mE-lhe_R8.flac',
+    # '00W1lcxW-WU.flac',
+    # '0150dZu3Na8.flac',
+    # '01B907_Gyys.flac',
+    # '01bTS8O2Xnc.flac',
+    # '01hjVJN9xCg.flac',
+    # '01k1v-NgjWs.flac',
+    # '01PzcPKT3_E.flac',
+    # '01q8wKX4XEQ.flac']
 
 
 if __name__ == '__main__':
     main()
+    # wf, sr = torchaudio.load('/home/maxmay/Data/audio/bal_train/00M9FhCet6s.flac')
+    # coch = generate_cochleagram(wf, sr, dtype=np.ndarray, debug=True)
+    # print(coch)
+
