@@ -1,5 +1,6 @@
 import os
 import sys
+import time
 import numpy as np
 
 import torch
@@ -38,32 +39,62 @@ class AudioDataset(Dataset):
     # 4. Generate cochleagram
     # 4.1 remove first and last second due to noise
 
-    def __init__(self, dir, target_samplerate: int = 48000):
+    def __init__(self, mode, dir, target_samplerate: int = 48000, store_all=False):
+        self.mode = mode
         self.target_samplerate = target_samplerate
+        self.store_all = store_all
+
         self.audio_files = read_txt(dir)
 
         self.hrtf = self.open_sofa()
         self.locations = self.locations()
         self.labels = torch.randint(0, self.locations, (len(self.audio_files),))
+        
+        if self.store_all:
+            # currently store everything in memory
+            # Future work could be to create tensor, only if data is called
+            self.audio = self.create_tensor()
+        else:    
+            # Not sure if necessary, but for sanity sake:
+            self.combination = list(zip(self.audio_files, self.labels))
 
-        # currently store everything in memory
-        # Future work could be to create tensor, only if data is called
-        self.audio = self.create_tensor()
     
     def __len__(self):
         return len(self.labels)
 
     def __getitem__(self, idx):
-        return self.audio[idx], self.labels[idx]
+        if self.store_all:
+            return self.audio[idx], self.labels[idx]
+        else:
+            return self._create_tensor(self.combination[idx]), self.combination[idx][1]
 
-    def create_tensor(self):
+    def _create_tensor(self, data):
+        begin = time.time()
+        audio, label = data[0], data[1]
+        flac = self.load_flac(audio)
+        sliced = self.slice_audio(flac, slice_seconds=1.07) # This way you keep 1 second after last cut
+        # Add ramping
+        # W.I.P.
+        localization = self.get_localization(label)
+        transform = self.transform(sliced, localization, n=0.035) # cut first and last 35ms from audio
+        cochleagram = generate_cochleagram(convolved, self.target_samplerate)
+        print(f'took: {(time.time()-begin):.2f} seconds')
+        return cochleagram
+
+
+    def create_tensor(self): # : tuple(str,torch.Tensor)
         tensor = []
-        for idx, fn in enumerate(tqdm(self.audio_files, desc='Generating Audio Dataset')):
+        for idx, fn in enumerate(tqdm(self.audio_files, desc='Generating Audio Dataset', disable=True)):
             flac = self.load_flac(fn)
             sliced = self.slice_audio(flac, slice_seconds=3)
-            localization = self.get_localization(self.labels[idx])
-            # print("Sliced: ", sliced.shape)
+            
+            # Add ramping
+            # W.I.P.
 
+            label = self.labels[idx]
+            localization = self.get_localization(label)
+            # print("Sliced: ", sliced.shape)
+            
             convolved = self.transform(sliced, localization, n=1)
             # print(f'Transformed: {convolved.shape}')
 
@@ -83,9 +114,9 @@ class AudioDataset(Dataset):
             waveform = torchaudio.functional.resample(waveform, orig_freq = sample_rate, new_freq = self.target_samplerate)
         return waveform
 
-    def slice_audio(self, audio: torch.Tensor, slice_seconds: int = 3) -> torch.Tensor:
+    def slice_audio(self, audio: torch.Tensor, slice_seconds: float = 3.) -> torch.Tensor:
         # Calculate the number of frames necessary based on the sample rate
-        num_frames = slice_seconds * self.target_samplerate
+        num_frames = int(slice_seconds * self.target_samplerate)
 
         # Pick a random off set, but make sure this won't exceed the total number of frames
         total = audio.shape[1]
@@ -103,13 +134,10 @@ class AudioDataset(Dataset):
         return hrtf
 
     # Dimensions:
-    # I: 1
     # C: 3
     # R: 2 -- Receivers (i.e. Left and Right)
-    # E: 1
     # N: 256 -- Total time 
     # M: 828 -- Measurement Locations
-    # S: 0
     # Sampling rate: 48 kHz
     def locations(self):
         # Get the amount measurement locations
@@ -133,14 +161,14 @@ class AudioDataset(Dataset):
         return location_dist
 
 
-    def transform(self, audio: torch.Tensor, location_dist: torch.Tensor, n: int = 1) -> torch.Tensor:
+    def transform(self, audio: torch.Tensor, location_dist: torch.Tensor, n: float = 1.) -> torch.Tensor:
         # Convolve sliced audio with the location cues
         convolved = fftconvolve(audio, location_dist)
         # convolved = audio
         # print(convolved.shape)
 
         # Remove the first and last second (n=1), due to noise
-        second = n * self.target_samplerate # Sampling rate
+        second = int(n * self.target_samplerate) # Sampling rate
         total = convolved.shape[1]
 
         convolved = convolved[:, second:total-second-255] # 255 is hardcoded, is due to hrtf.Dimensions.N = 256; No solution yet
@@ -154,17 +182,22 @@ def main():
     # hrtf = sofa.Database.open('/home/maxmay/sound_ipcl/utils/KEMAR_Knowl_EarSim_SmallEars_FreeFieldComp_48kHz.sofa')
     # print(hrtf.Data.IR.get_values(indices={'M': 827, 'R': 0, 'E': 0}))
     dataset = AudioDataset(
+                    mode='train',
                     dir='/home/maxmay/files_to_copy.txt', 
                     target_samplerate = target_samplerate
                     )
 
+    # print(dataset.combi[0][0])
     # print(dataset.hrtf.Dimensions.N)
     dataloader = DataLoader(dataset, batch_size=2, shuffle=False)
 
 
     for idx, (audio, label) in enumerate(dataloader):
-        print(f'Audio: {audio.shape}\n{audio[0]}\nLabel(s): {label}')
-        break
+        # print(f'Audio: {audio.shape}\n{audio[0]}\nLabel(s): {label}')
+        print(audio.shape)
+        print(label)
+        print()
+        # break
 
 if __name__ == '__main__':
     main()
