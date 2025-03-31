@@ -1,4 +1,6 @@
 import os
+from pathlib import Path
+
 import sys
 import time
 import numpy as np
@@ -7,6 +9,11 @@ import torch
 from torch.utils.data import Dataset, DataLoader
 import torchaudio
 from torchaudio.functional import fftconvolve
+
+# WebDataSet for handling tar files
+# import webdataset as wds
+# os.environ["WDS_VERBOSE_CACHE"] = "1"
+# os.environ["GOPEN_VERBOSE"] = "0"
 
 import sofa
 from tqdm import tqdm
@@ -39,8 +46,9 @@ class AudioDataset(Dataset):
     # 4. Generate cochleagram
     # 4.1 remove first and last second due to noise
 
-    def __init__(self, mode, dir, target_samplerate: int = 48000, store_all=False):
+    def __init__(self, mode, dir, target_samplerate: int = 48000, store_all=False, debug=False):
         self.mode = mode
+        self.debug = debug
         self.target_samplerate = target_samplerate
         self.store_all = store_all
 
@@ -69,16 +77,17 @@ class AudioDataset(Dataset):
             return self._create_tensor(self.combination[idx]), self.combination[idx][1]
 
     def _create_tensor(self, data):
-        begin = time.time()
+        if self.debug:
+            begin = time.time()
         audio, label = data[0], data[1]
         flac = self.load_flac(audio)
         sliced = self.slice_audio(flac, slice_seconds=1.07) # This way you keep 1 second after last cut
-        # Add ramping
-        # W.I.P.
         localization = self.get_localization(label)
+        # Add ramping -- currently inside transform
         transform = self.transform(sliced, localization, n=0.035) # cut first and last 35ms from audio
-        cochleagram = generate_cochleagram(convolved, self.target_samplerate)
-        print(f'took: {(time.time()-begin):.2f} seconds')
+        cochleagram = generate_cochleagram(transform, self.target_samplerate)
+        if self.debug:
+            print(f'took: {(time.time()-begin):.2f} seconds')
         return cochleagram
 
 
@@ -161,19 +170,53 @@ class AudioDataset(Dataset):
         return location_dist
 
 
+    # --Function definitions
+    def rampsound(self, sndtemp, rampdur:float):
+        '''function to add an on and off ramp
+        sndtemp = 2 channel waveform
+        rampdur = ramp duration in seconds
+        fs_snd = sampling rate'''
+        fs_snd = self.target_samplerate
+
+        rmpwin = int(np.floor(rampdur*fs_snd)) # define number of samples
+        
+        # define ramp
+        if type(sndtemp) == np.ndarray:
+            rampON = np.linspace(0,1,rmpwin)
+            rampOFF = np.linspace(1,0,rmpwin)
+        elif type(sndtemp) == torch.Tensor:
+            rampON = torch.linspace(0,1,rmpwin)
+            rampOFF = torch.linspace(1,0,rmpwin)
+        else:
+            raise TypeError(f'"{type(sndtemp)}" not recognized, expected "torch.Tenor" or "np.ndarray"')
+
+        # ramp sound
+        sndtemp[0,0:rmpwin] = rampON*sndtemp[0,0:rmpwin] # ON, left channel
+        sndtemp[1,0:rmpwin] = rampON*sndtemp[1,0:rmpwin] # ON, right channel
+        sndtemp[0,np.shape(sndtemp)[1]-rmpwin:] = rampOFF*sndtemp[0,np.shape(sndtemp)[1]-rmpwin:np.shape(sndtemp)[1]] # OFF, left channel
+        sndtemp[1,np.shape(sndtemp)[1]-rmpwin:] = rampOFF*sndtemp[1,np.shape(sndtemp)[1]-rmpwin:np.shape(sndtemp)[1]] # OFF, right channel  
+    
+        # cast sndtemp to tensor
+        if type(sndtemp) == np.ndarray:
+            sndtemp = torch.from_numpy(sndtemp)
+    
+        return sndtemp
+
+
     def transform(self, audio: torch.Tensor, location_dist: torch.Tensor, n: float = 1.) -> torch.Tensor:
         # Convolve sliced audio with the location cues
         convolved = fftconvolve(audio, location_dist)
         # convolved = audio
         # print(convolved.shape)
+        ramped = self.rampsound(convolved, rampdur=0.01)
 
         # Remove the first and last second (n=1), due to noise
         second = int(n * self.target_samplerate) # Sampling rate
         total = convolved.shape[1]
 
-        convolved = convolved[:, second:total-second-255] # 255 is hardcoded, is due to hrtf.Dimensions.N = 256; No solution yet
+        spatialized = ramped[:, second:total-second-255] # 255 is hardcoded, is due to hrtf.Dimensions.N = 256; No solution yet
         # print(f'Final shape: {convolved.shape}')
-        return convolved
+        return spatialized
 
 
 def main():
@@ -199,8 +242,44 @@ def main():
         print()
         # break
 
+def test():
+    save_dir = './results'
+
+    dataset = AudioDataset(
+                mode='train',
+                dir='/home/maxmay/files_to_copy.txt', 
+                target_samplerate = 48000
+                )
+
+    test_files = dataset.audio_files[:2]
+    labels = dataset.labels[:2]
+    print(test_files)
+
+    for file, label in zip(test_files,labels):
+        flac = dataset.load_flac(file)
+        print(flac.shape)
+        sliced = dataset.slice_audio(flac, slice_seconds=1.07) # This way you keep 1 second after last cut
+        print(sliced.shape)
+
+        localization = dataset.get_localization(label)
+        # # Add ramping -- currently inside transform
+        transform = dataset.transform(sliced, localization, n=0.035) # cut first and last 35ms from audio
+        cochleagram = generate_cochleagram(transform, dataset.target_samplerate)
+        print(label, cochleagram.shape)
+
+        fn = os.path.join(save_dir, Path(file).stem+'_'+str(label.item())+'.pt')
+        print(fn)
+
+        torch.save(cochleagram, fn)
+        # print(cochleagram.shape, (cochleagram[0] == cochleagram[1]).all())
+        # if self.debug:
+        #     print(f'took: {(time.time()-begin):.2f} seconds')
+
+
+
 if __name__ == '__main__':
     main()
+    # test()
     # fetch_location()
     # wf = generate_cochleagram(torch.Tensor([0.]))
     # print(wf)
