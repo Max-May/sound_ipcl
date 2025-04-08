@@ -1,3 +1,4 @@
+import os
 import numpy as np
 
 import torch
@@ -29,43 +30,43 @@ def train(model, dataloader, criterion, scheduler, optimizer, device):
 
     time_total = 0
     time_start = time.time()
-    # for idx, (data, labels) in enumerate(tqdm(dataloader, desc='Training')):
     for idx, (data, labels) in enumerate(dataloader):
-        time_now = time.time()
-
         counter += 1
-
-        avg_time = (time_now - time_start - time_total) / counter
-        time_total += avg_time 
-
-
         total_guessed += data.shape[0]
-        print(f'[Batch: {idx+1}, ({avg_time:.2f}s/it total:{time_total:.2f}s)]: {total_guessed:04d}', end="\r", flush=True)
+        print(f'[Batch: {idx+1}]: {total_guessed}', end="\r", flush=True)
 
-    #     counter += 1
-    #     total_guessed += data.shape[0]
+        data = data.to(device, dtype=torch.float)
+        labels = labels.to(device)
 
-    #     data = data.to(device, dtype=torch.float)
-    #     labels = labels.to(device)
+        # Forward pass
+        outputs = model(data)
+        # Calculate loss
+        loss = criterion(outputs, labels)
+        train_running_loss += loss.item()
 
-    #     # Forward pass
-    #     outputs = model(data)
-    #     # Calculate loss
-    #     loss = criterion(outputs, labels)
-    #     train_running_loss += loss.item()
+        # Calculate accuracy
+        _, preds = torch.max(outputs.data, 1)
+        train_running_acc += (preds == labels).sum().item()
 
-    #     # Calculate accuracy
-    #     _, preds = torch.max(outputs.data, 1)
-    #     train_running_acc += (preds == labels).sum().item()
+        loss.backward()
+        optimizer.step()
 
-    #     loss.backward()
-    #     optimizer.step()
+    scheduler.step()
+    epoch_loss = train_running_loss / counter
+    epoch_acc = 100. * (train_running_acc / total_guessed)
+    return epoch_acc, epoch_loss
 
-    # scheduler.step()
-    # epoch_loss = train_running_loss / counter
-    # epoch_acc = 100. * (train_running_acc / total_guessed)
-    # return epoch_acc, epoch_loss
-    return None, None
+        # time_now = time.time()
+
+        # counter += 1
+
+        # avg_time = (time_now - time_start - time_total) / counter
+        # time_total += avg_time 
+
+
+        # total_guessed += data.shape[0]
+        # print(f'[Batch: {idx+1}, ({avg_time:.2f}s/it total:{time_total:.2f}s)]: {total_guessed:04d}', end="\r", flush=True)
+    # return None, None
 
 
 @torch.no_grad()
@@ -76,40 +77,39 @@ def validate(model, dataloader, criterion, device):
     counter = 0
     total_guessed = 0
 
-    # for idx, (data, labels) in enumerate(tqdm(dataloader, desc='Validating')):
-    #     counter += 1
-    #     total_guessed += data.shape[0]
-
-    #     data = data.to(device)
-    #     labels = labels.to(device)
-         
-    #     # Forward pass.
-    #     outputs = model(image)
-    #     # Calculate the loss.
-    #     loss = criterion(outputs, labels)
-    #     valid_running_loss += loss.item()
-    #     # Calculate the accuracy.
-    #     _, preds = torch.max(outputs.data, 1)
-    #     valid_running_correct += (preds == labels).sum().item()
-    time_total = 0
-    time_start = time.time()
     for idx, (data, labels) in enumerate(dataloader):
-        time_now = time.time()
-
         counter += 1
-
-        avg_time = (time_now - time_start - time_total) / counter
-        time_total += avg_time 
-
-
         total_guessed += data.shape[0]
-        print(f'[Batch: {idx+1}, ({avg_time:.2f}s/it total:{time_total:.2f}s)]: {total_guessed:04d}', end="\r", flush=True)
+        print(f'[Batch: {idx+1}]: {total_guessed}', end="\r", flush=True)
+
+        data = data.to(device)
+        labels = labels.to(device)
+         
+        # Forward pass.
+        outputs = model(image)
+        # Calculate the loss.
+        loss = criterion(outputs, labels)
+        valid_running_loss += loss.item()
+        # Calculate the accuracy.
+        _, preds = torch.max(outputs.data, 1)
+        valid_running_correct += (preds == labels).sum().item()
 
     # Loss and accuracy for the complete epoch.
-    # epoch_loss = valid_running_loss / counter
-    # epoch_acc = 100. * (valid_running_correct / total_guessed)
-    # return epoch_acc, epoch_loss
-    return None, None
+    epoch_loss = valid_running_loss / counter
+    epoch_acc = 100. * (valid_running_correct / total_guessed)
+    return epoch_acc, epoch_loss
+
+    # time_total = 0
+    # time_start = time.time()
+    # for idx, (data, labels) in enumerate(dataloader):
+        # time_now = time.time()
+        # counter += 1
+        # avg_time = (time_now - time_start - time_total) / counter
+        # time_total += avg_time 
+        # total_guessed += data.shape[0]
+        # print(f'[Batch: {idx+1}, ({avg_time:.2f}s/it total:{time_total:.2f}s)]: {total_guessed:04d}', end="\r", flush=True)
+    # return None, None
+
 
 
 def main(args):
@@ -128,9 +128,16 @@ def main(args):
 
     print(f'=> Running experiment: {experiment} with id: {run_id}\nUsing seed: {seed}')
 
+    # Setting up the save locations
+    log_dir = cfg['log_dir']
+    log_path = os.path.join(log_dir, experiment, run_id)
+    save_dir = cfg['save_dir']
+    save_path = os.path.join(save_dir, experiment, run_id)
+
     # CUDA for PyTorch
     # use_cuda = torch.cuda.is_available()
-    use_cuda = cfg['gpu']
+    n_gpus = cfg['n_gpu']
+    use_cuda = True if n_gpus > 0 else False
     device = torch.device("cuda" if use_cuda else "cpu")
     if use_cuda:
         torch.backends.cudnn.benchmark = True
@@ -185,12 +192,12 @@ def main(args):
     #     resample=True
     #     )
     WAS = WebAudioSet(
-    base_data_dir = dataset['base_data_dir']+dataset['train_split']+'.tar',
-    val_data_dir = dataset['base_data_dir']+dataset['val_split']+'.tar',
-    hrtf_dir = dataset['sofa_dir'],
-    target_samplerate = dataset['sample_rate'],
-    batch_size = dataset['batch_size'],
-    resample= dataset['resample']
+        base_data_dir = dataset['base_data_dir']+dataset['train_split']+'.tar',
+        val_data_dir = dataset['base_data_dir']+dataset['val_split']+'.tar',
+        hrtf_dir = dataset['sofa_dir'],
+        target_samplerate = dataset['sample_rate'],
+        batch_size = dataset['batch_size'],
+        resample= dataset['resample']
     )
     WAS.setup('fit')
     train_loader = WAS.train_wds_loader()
@@ -198,26 +205,51 @@ def main(args):
 
     # Since we resample the data, the dataloader is infinite and we need to set a limit per epoch
     # This is done inside the WebAudioSet class --> {train/val}_wds_loader()
-    nr_epochs = cfg['trainer']['epochs']
+    trainer = cfg['trainer']
+    nr_epochs = trainer['epochs']
+    save_freq = trainer['save_freq']
 
-    # for epoch in range(nr_epochs):
-    #     print(f'Epoch:[{epoch+1}/{nr_epochs}]')
-    #     train_acc, train_loss = train(model, train_loader, criterion, scheduler, optimizer, device)
-    #     # train_acc, train_loss = train(model, val_loader, criterion, scheduler, optimizer, device)
-    #     # print(f'Train Accuracy: {train_acc}\nLoss: {train_loss}\n')
-    #     val_acc, val_loss = validate(resnet, val_loader, criterion, device)
-        # print(f'Test Accuracy: {val_acc}\nLoss: {val_loss}\n')
+    best_acc = 0
+    best_epoch = 0
+    last_epoch = 0
+    log = {}
+    for epoch in range(nr_epochs):
+        print(f'Epoch:[{epoch+1}/{nr_epochs}]')
+        train_acc, train_loss = train(model, train_loader, criterion, scheduler, optimizer, device)
+        val_acc, val_loss = validate(model, val_loader, criterion, device)
+
+        print(f'Training accuracy: {train_acc:.3f} | Loss: {train_loss:.3f}')
+        print(f'Validation Accuracy: {val_acc:.3f} | Loss: {val_loss:.3f}\n')
+
+        save_model(model, save_path, epoch)
+
+        if val_acc > best_acc:
+            best_acc = val_acc
+            save_model(model, save_path, epoch, post='best')
+
+        if (epoch % save_freq) == 0:
+            # create a logger here
+            log = logger(log, epoch, 
+                {'train_acc': train_acc, 
+                'train_loss': train_loss, 
+                'val_acc': val_acc, 
+                'val_loss': val_loss},
+                log_path)
+
+    print(f'Done training!')
 
 
-def test_config(args):
-    try:
-        cfg = read_yaml(args.config)
-    except Exception as e:
-        print(f'Need config file, use "-c config.yaml"\n{e}')
-        return None
-    print(cfg['trainer']['epochs'])
-    # print(cfg.name)
-    # print(cfg.arch._component_)
+def save_model(model, fn: str, epoch: int, post='last'):
+    fn = fn + '_' + str(epoch) + '_' + post + '.pth'
+    print(f'=> Saving model to {fn}')
+    torch.save(model, fn)
+
+
+def logger(log: dict, epoch: int, parameters: dict, fn: str):
+    log[epoch] = parameters
+    fn = fn + '.yaml'
+    write_yaml(log, fn)
+    return log
 
 
 if __name__ == "__main__":
@@ -229,8 +261,7 @@ if __name__ == "__main__":
                     default=None, type=str,
                     help='path to latest checkpoint (default: None)')
     args = args.parse_args()
-    # test_config(args)
+
     main(args)
 
-    # write_yaml(Bottleneck, fn='./test.yaml')
 
