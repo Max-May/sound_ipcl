@@ -5,3 +5,5 @@ results/*
 
 pycochleagram/*
 utils/unzip.py
+
+*.yaml
