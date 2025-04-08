@@ -10,18 +10,10 @@ from torch.utils.data import Dataset, DataLoader
 import torchaudio
 from torchaudio.functional import fftconvolve
 
-# WebDataSet for handling tar files
-# import webdataset as wds
-# os.environ["WDS_VERBOSE_CACHE"] = "1"
-# os.environ["GOPEN_VERBOSE"] = "0"
-
 import sofa
 from tqdm import tqdm
 
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-sys.path.append(os.path.dirname(SCRIPT_DIR))
-
-from utils.Generate_Cochleagram import generate_cochleagram
+from .Generate_Cochleagram import generate_cochleagram
 
 
 HOME_DIR = '/home/maxmay'
@@ -85,7 +77,7 @@ class AudioDataset(Dataset):
         localization = self.get_localization(label)
         # Add ramping -- currently inside transform
         transform = self.transform(sliced, localization, n=0.035) # cut first and last 35ms from audio
-        cochleagram = generate_cochleagram(transform, self.target_samplerate)
+        cochleagram = torch.from_numpy(generate_cochleagram(transform, self.target_samplerate))
         if self.debug:
             print(f'took: {(time.time()-begin):.2f} seconds')
         return cochleagram
