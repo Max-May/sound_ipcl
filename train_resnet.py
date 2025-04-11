@@ -291,10 +291,14 @@ def test_dataloader(args):
     train_loader = WAS.train_wds_loader(nr_workers=dataset['nr_workers'])
     # val_loader = WAS.val_wds_loader()
 
-    for idx, (data, _) in enumerate(train_loader):
-        total_guessed += data.shape[0]
-        print(f'[Batch: {idx+1}]: {total_guessed}', end="\r", flush=True)
-
+    total_guessed = 0
+    for epoch in range(10):
+        print(f'[Epoch: {epoch}/10]')
+        for idx, (data, _) in enumerate(train_loader):
+            total_guessed += data.shape[0]
+            print(f'[Batch: {idx+1}]: {total_guessed}')
+        print("")
+    print(f"Done")
 
 if __name__ == "__main__":
     args = argparse.ArgumentParser(description='Supervised training Resnet-50')

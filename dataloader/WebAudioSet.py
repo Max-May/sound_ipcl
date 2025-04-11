@@ -90,7 +90,7 @@ class WebAudioSet(Dataset):
             )
         # Unbatch, shuffle between workers, then rebatch.
         loader = loader.unbatched().shuffle(1000).batched(sub_batch_size)
-        loader = loader.with_epoch(1 * 2000 // sub_batch_size)
+        loader = loader.with_epoch(9 * 2000 // sub_batch_size)
         return loader
 
     def val_wds_loader(self, nr_workers: int = 16, batch_size: int = None):

@@ -37,6 +37,8 @@ def slice_audio(audio: torch.Tensor, slice_seconds: float = 3., samplerate: int 
 
         # Pick a random off set, but make sure this won't exceed the total number of frames
         total = audio.shape[1]
+        # print(f'Audio: {audio.shape} | Total: {total} | Nr of frames: {num_frames}')
+        assert num_frames <= total, "Number of frames to pick cannot exceed the total number of frames ({num_frames} > {total})"
         off_set = np.random.randint(0, (total - num_frames))
 
         # Slice the audio, accounting for multiple channels
