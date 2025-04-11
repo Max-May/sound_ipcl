@@ -7,4 +7,11 @@ logs/*
 pycochleagram/*
 utils/unzip.py
 
+# Ignore config files
 *.yaml
+
+# Ignore bash scripts
+*.sh
+
+# Ignore slurm output
+slurm_output/*

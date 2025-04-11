@@ -3,9 +3,9 @@ Repository for Master Thesis: "A self-supervised, domain-general learning framew
 
 ## Installation
 1. Git clone or download this repo
-2. Create a virtualenv
-3. Activate the virtualenv
-4. run `pip install -r requirements.txt`
+2. Create a `virtualenv`
+3. Activate the `virtualenv`
 5. cd into `pycochleagram`
 6. run `python setup.py install`
+4. run `pip install -r requirements.txt`
  

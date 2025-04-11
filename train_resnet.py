@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 import numpy as np
 
 import torch
@@ -82,11 +83,11 @@ def validate(model, dataloader, criterion, device):
         total_guessed += data.shape[0]
         print(f'[Batch: {idx+1}]: {total_guessed}', end="\r", flush=True)
 
-        data = data.to(device)
+        data = data.to(device, dtype=torch.float)
         labels = labels.to(device)
          
         # Forward pass.
-        outputs = model(image)
+        outputs = model(data)
         # Calculate the loss.
         loss = criterion(outputs, labels)
         valid_running_loss += loss.item()
@@ -141,8 +142,8 @@ def main(args):
     device = torch.device("cuda" if use_cuda else "cpu")
     if use_cuda:
         torch.backends.cudnn.benchmark = True
-        curr_device = torch.cuda.current_device
-    print(f'Using device: "{device}{": " + curr_device if use_cuda else ""}"')
+        curr_device = torch.cuda.current_device()
+    print(f'Using device: "{device}{": " + str(curr_device) if use_cuda else ""}"')
     if use_cuda:
         print(f'[{torch.cuda.device(curr_device)}] name: "{torch.cuda.get_device_name(curr_device)}"')
 
@@ -216,9 +217,9 @@ def main(args):
     for epoch in range(nr_epochs):
         print(f'Epoch:[{epoch+1}/{nr_epochs}]')
         train_acc, train_loss = train(model, train_loader, criterion, scheduler, optimizer, device)
-        val_acc, val_loss = validate(model, val_loader, criterion, device)
-
         print(f'Training accuracy: {train_acc:.3f} | Loss: {train_loss:.3f}')
+
+        val_acc, val_loss = validate(model, val_loader, criterion, device)
         print(f'Validation Accuracy: {val_acc:.3f} | Loss: {val_loss:.3f}\n')
 
         save_model(model, save_path, epoch)
@@ -240,12 +241,16 @@ def main(args):
 
 
 def save_model(model, fn: str, epoch: int, post='last'):
+    # Check if directory exists, else create all parent dirs
+    Path(fn).mkdir(parents=True, exist_ok=True)
     fn = fn + '_' + str(epoch) + '_' + post + '.pth'
     print(f'=> Saving model to {fn}')
     torch.save(model, fn)
 
 
 def logger(log: dict, epoch: int, parameters: dict, fn: str):
+    # Check if directory exists, else create all parent dirs
+    Path(fn).mkdir(parents=True, exist_ok=True)
     log[epoch] = parameters
     fn = fn + '.yaml'
     write_yaml(log, fn)
