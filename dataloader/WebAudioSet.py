@@ -42,6 +42,7 @@ class WebAudioSet(Dataset):
                 target_samplerate: int = 48000,
                 batch_size: int = 32,
                 resample: bool = True,
+                debug=False
                 ):
         super().__init__()
         self.base_data_dir = base_data_dir
@@ -50,6 +51,7 @@ class WebAudioSet(Dataset):
         self.target_samplerate = target_samplerate
         self.batch_size = batch_size
         self.resample = resample
+        self.debug = debug
     
     def setup(self, stage: str):
         if stage == 'fit':
@@ -57,6 +59,7 @@ class WebAudioSet(Dataset):
             self.val_dataset = self.make_web_dataset(self.val_data_dir, shuffle=0)
     
     def make_web_dataset(self, path, shuffle):
+        warning = wds.reraise_exception if self.debug else wds.warn_and_continue
         pre_process_function = partial(__getitem__,
                                         hrtf=self.hrtf,
                                         target_samplerate=self.target_samplerate)
@@ -64,9 +67,9 @@ class WebAudioSet(Dataset):
         # For IterableDataset objects, the batching needs to happen in the dataset.
         dataset = (wds.WebDataset(path, resampled=self.resample, cache_dir='/tmp', shardshuffle=True)
                 .shuffle(shuffle)
-                .decode(wds.torch_audio, handler=wds.warn_and_continue)
+                .decode(wds.torch_audio, handler=warning)
                 .to_tuple('flac')
-                .map(pre_process_function, handler=wds.warn_and_continue)
+                .map(pre_process_function, handler=warning)
                 .batched(self.batch_size))
         return dataset
     
@@ -87,7 +90,7 @@ class WebAudioSet(Dataset):
             )
         # Unbatch, shuffle between workers, then rebatch.
         loader = loader.unbatched().shuffle(1000).batched(sub_batch_size)
-        loader = loader.with_epoch(696 * 2000 // sub_batch_size)
+        loader = loader.with_epoch(9 * 2000 // sub_batch_size)
         return loader
 
     def val_wds_loader(self, nr_workers: int = 16, batch_size: int = None):
@@ -107,7 +110,7 @@ class WebAudioSet(Dataset):
         
         # Unbatch, shuffle between workers, then rebatch.
         loader = loader.unbatched().shuffle(1000).batched(sub_batch_size)
-        loader = loader.with_epoch(174 * 2000 // sub_batch_size)
+        loader = loader.with_epoch(1 * 2000 // sub_batch_size)
         return loader
 
 

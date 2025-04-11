@@ -257,6 +257,49 @@ def logger(log: dict, epoch: int, parameters: dict, fn: str):
     return log
 
 
+def test_dataloader(args):
+    debug = args.debug
+    if debug:
+        print(f'Debugging mode is active')
+
+    try:
+        cfg = read_yaml(args.config)
+    except Exception as e:
+        print(f'Need config file, use "-c config.yaml"\n{e}')
+        return None
+
+    experiment = cfg['name']
+    run_id = datetime.now().strftime('%Y%m%d_%H%M%S')
+
+    # Seed everything for reproducibility
+    seed = cfg['seed']
+    seed_all(seed)
+
+    print(f'=> Running experiment: {experiment} with id: {run_id}\nUsing seed: {seed}')
+
+    dataset = cfg['dataset']
+    WAS = WebAudioSet(
+        base_data_dir = dataset['base_data_dir']+dataset['train_split']+'.tar',
+        val_data_dir = dataset['base_data_dir']+dataset['val_split']+'.tar',
+        hrtf_dir = dataset['sofa_dir'],
+        target_samplerate = dataset['sample_rate'],
+        batch_size = dataset['batch_size'],
+        resample= dataset['resample'],
+        debug=debug
+    )
+    WAS.setup('fit')
+    train_loader = WAS.train_wds_loader(nr_workers=dataset['nr_workers'])
+    # val_loader = WAS.val_wds_loader()
+
+    total_guessed = 0
+    for epoch in range(10):
+        print(f'[Epoch: {epoch}/10]')
+        for idx, (data, _) in enumerate(train_loader):
+            total_guessed += data.shape[0]
+            print(f'[Batch: {idx+1}]: {total_guessed}')
+        print("")
+    print(f"Done")
+
 if __name__ == "__main__":
     args = argparse.ArgumentParser(description='Supervised training Resnet-50')
     args.add_argument('-c', '--config', 
@@ -265,8 +308,12 @@ if __name__ == "__main__":
     args.add_argument('-r', '--resume', 
                     default=None, type=str,
                     help='path to latest checkpoint (default: None)')
+    args.add_argument('-d', '--debug', 
+                    default=False, action=argparse.BooleanOptionalAction,
+                    help='turn on debuggin mode')  
     args = args.parse_args()
 
-    main(args)
+    # main(args)
+    test_dataloader(args)
 
 
