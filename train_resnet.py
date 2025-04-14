@@ -123,27 +123,9 @@ def main(args):
         print(f'Need config file, use "-c config.yaml"\n{e}')
         return None
 
-    resume = args.resume
-    if resume:
-        assert len(resume.split(',')) == 3, "resume must in form: 'experiment,runID,suffix'"
-        experiment,run_id,suffix = resume.split(',')
-        print(f'=> Resuming from: results/{experiment}/{run_id}/checkpoint_{suffix}.pth')
-    else:
-        experiment = cfg['name']
-        run_id = datetime.now().strftime('%Y%m%d_%H%M%S')
-        print(f'=> Running experiment: {experiment} with id: {run_id}')
-        
     # Seed everything for reproducibility
     seed = cfg['seed']
     seed_all(seed)
-
-
-    # Setting up the save locations
-    log_dir = cfg['log_dir']
-    log_path = os.path.join(log_dir, experiment, run_id)
-    save_dir = cfg['save_dir']
-    save_path = os.path.join(save_dir, experiment, run_id)
-
 
     # CUDA for PyTorch
     # use_cuda = torch.cuda.is_available()
@@ -185,6 +167,43 @@ def main(args):
     if criterion['_component_'].lower() == 'crossentropyloss':
         criterion = nn.CrossEntropyLoss()
 
+    start_epoch = 0
+    log = {}
+    best_loss = float(1e9)
+    current_loss = float(1e9)
+    best_acc = 0.
+    current_acc = 0.
+
+    # If resuming, check if file exists and then load everything accordingly
+    resume = args.resume
+    if resume:
+        assert len(resume.split(',')) == 3, "resume must in form: 'experiment,runID,suffix'"
+        experiment,run_id,suffix = resume.split(',')
+        ckpt = f'./results/{experiment}/{run_id}/checkpoint_{suffix}.pth'
+        if not os.path.exists(ckpt):
+            experiment = cfg['name']
+            run_id = datetime.now().strftime('%Y%m%d_%H%M%S')
+            print(f'=> Checkpoint {ckpt} not found!\n=> Running experiment: {experiment} with id: {run_id}')
+        else:
+            print(f'=> Resuming from: {ckpt}')
+            checkpoint = torch.load(ckpt, map_location=device)
+
+            start_epoch = checkpoint['epoch']
+            model.load_state_dict(checkpoint['state_dict'])
+            optimizer.load_state_dict(checkpoint['optimizer'])
+            best_loss = checkpoint['best_loss']
+            val_loss = checkpoint['current_loss']
+            best_acc = checkpoint['best_acc']
+            val_acc = checkpoint['current_acc']
+
+            log = read_yaml(os.path.join('./logs', experiment, run_id, 'log.yaml'))
+        
+    # Setting up the save locations
+    log_dir = cfg['log_dir']
+    log_path = os.path.join(log_dir, experiment, run_id)
+    save_dir = cfg['save_dir']
+    save_path = os.path.join(save_dir, experiment, run_id)
+
     # Old method --> not optimized for .tar files
     # train_data = AudioDataset(
     #                 dir='/home/maxmay/files_to_copy.txt', 
@@ -194,14 +213,6 @@ def main(args):
 
     # New method --> optimized for large tar file directories
     dataset = cfg['dataset']
-    # WAS = WebAudioSet(
-    #     base_data_dir = '/home/maxmay/Data/bal_train{00..07}.tar',
-    #     val_data_dir = '/home/maxmay/Data/bal_train{08..09}.tar',
-    #     hrtf_dir = '/home/maxmay/sound_ipcl/utils/KEMAR_Knowl_EarSim_SmallEars_FreeFieldComp_48kHz.sofa',
-    #     target_samplerate = 48000,
-    #     batch_size = batch_size,
-    #     resample=True
-    #     )
     WAS = WebAudioSet(
         base_data_dir = dataset['base_data_dir']+dataset['train_split']+'.tar',
         val_data_dir = dataset['base_data_dir']+dataset['val_split']+'.tar',
@@ -220,13 +231,7 @@ def main(args):
     nr_epochs = trainer['epochs']
     save_freq = trainer['save_freq']
 
-    best_loss = float(1e9)
-    current_loss = float(1e9)
-    best_acc = 0.
-    current_acc = 0.
-
-    log = {}
-    for epoch in range(nr_epochs):
+    for epoch in range(start_epoch, nr_epochs):
         print(f'Epoch:[{epoch+1}/{nr_epochs}]')
         train_acc, train_loss = train(model, train_loader, criterion, scheduler, optimizer, device)
         print(f'Training accuracy: {train_acc:.3f} | Loss: {train_loss:.3f}')
@@ -338,7 +343,7 @@ if __name__ == "__main__":
                     help='turn on debuggin mode')  
     args = args.parse_args()
 
-    # main(args)
+    main(args)
     # test_dataloader(args)
 
 
