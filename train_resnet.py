@@ -1,4 +1,5 @@
 import os
+import shutil
 from pathlib import Path
 import numpy as np
 
@@ -127,6 +128,9 @@ def main(args):
     seed = cfg['seed']
     seed_all(seed)
 
+    experiment = cfg['name']
+    run_id = datetime.now().strftime('%Y%m%d_%H%M%S')
+
     # CUDA for PyTorch
     # use_cuda = torch.cuda.is_available()
     n_gpus = cfg['n_gpu']
@@ -239,7 +243,7 @@ def main(args):
         val_acc, val_loss = validate(model, val_loader, criterion, device)
         print(f'Validation Accuracy: {val_acc:.3f} | Loss: {val_loss:.3f}\n')
 
-        is_best = loss < best_loss
+        is_best = val_loss < best_loss
         best_loss = min(val_loss, best_loss)
         best_acc = max(val_acc, best_acc)
 
