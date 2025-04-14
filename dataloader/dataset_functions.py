@@ -25,12 +25,6 @@ def __len__(fn: str) -> int:
     return length
 
 
-def __size__(path: str) -> int:
-    fn = change_name(path)
-    number = len(glob.glob(fn))
-    return number
-
-
 def slice_audio(audio: torch.Tensor, slice_seconds: float = 3., samplerate: int = 48000) -> torch.Tensor:
         # Calculate the number of frames necessary based on the sample rate
         num_frames = int(slice_seconds * samplerate)

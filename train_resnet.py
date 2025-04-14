@@ -16,7 +16,7 @@ from dataloader.WebAudioSet import WebAudioSet
 import sofa
 from tqdm import tqdm
 import argparse
-from utils.util import read_yaml, write_yaml, seed_all
+from utils.util import read_yaml, write_yaml, seed_all, count_pattern_files
 
 import time 
 from datetime import datetime
@@ -35,7 +35,7 @@ def train(model, dataloader, criterion, scheduler, optimizer, device):
     for idx, (data, labels) in enumerate(dataloader):
         counter += 1
         total_guessed += data.shape[0]
-        print(f'[Batch: {idx+1}]: {total_guessed}', end="\r", flush=True)
+        print(f'[Batch: {idx+1}/{dataloader.nsamples}]: {total_guessed}', end="\r", flush=True)
 
         data = data.to(device, dtype=torch.float)
         labels = labels.to(device)
@@ -82,7 +82,7 @@ def validate(model, dataloader, criterion, device):
     for idx, (data, labels) in enumerate(dataloader):
         counter += 1
         total_guessed += data.shape[0]
-        print(f'[Batch: {idx+1}]: {total_guessed}', end="\r", flush=True)
+        print(f'[Batch: {idx+1}/{dataloader.nsamples}]: {total_guessed}', end="\r", flush=True)
 
         data = data.to(device, dtype=torch.float)
         labels = labels.to(device)
@@ -226,8 +226,11 @@ def main(args):
         resample= dataset['resample']
     )
     WAS.setup('fit')
-    train_loader = WAS.train_wds_loader()
-    val_loader = WAS.val_wds_loader()
+    train_epoch_size = count_pattern_files(dataset['train_split'])
+    val_epoch_size = count_pattern_files(dataset['val_split'])
+
+    train_loader = WAS.train_wds_loader(epoch_size=train_epoch_size)
+    val_loader = WAS.val_wds_loader(epoch_size=val_epoch_size)
 
     # Since we resample the data, the dataloader is infinite and we need to set a limit per epoch
     # This is done inside the WebAudioSet class --> {train/val}_wds_loader()
@@ -319,17 +322,20 @@ def test_dataloader(args):
         debug=debug
     )
     WAS.setup('fit')
-    train_loader = WAS.train_wds_loader(nr_workers=dataset['nr_workers'])
-    # val_loader = WAS.val_wds_loader()
+    train_epoch_size = count_pattern_files(dataset['train_split'])
+    val_epoch_size = count_pattern_files(dataset['val_split'])
 
-    total_guessed = 0
-    for epoch in range(10):
-        print(f'[Epoch: {epoch}/10]')
-        for idx, (data, _) in enumerate(train_loader):
-            total_guessed += data.shape[0]
-            print(f'[Batch: {idx+1}]: {total_guessed}')
-        print("")
-    print(f"Done")
+    train_loader = WAS.train_wds_loader(epoch_size=train_epoch_size)
+    val_loader = WAS.val_wds_loader(epoch_size=val_epoch_size)
+
+    # total_guessed = 0
+    # for epoch in range(10):
+    #     print(f'[Epoch: {epoch}/10]')
+    #     for idx, (data, _) in enumerate(train_loader):
+    #         total_guessed += data.shape[0]
+    #         print(f'[Batch: {idx+1}]: {total_guessed}')
+    #     print("")
+    # print(f"Done")
 
 
 
