@@ -58,6 +58,8 @@ class WebAudioSet(Dataset):
         if stage == 'fit':
             self.train_dataset = self.make_web_dataset(self.base_data_dir, shuffle=1000)
             self.val_dataset = self.make_web_dataset(self.val_data_dir, shuffle=0)
+        elif stage == 'inf':
+            self.val_dataset = self.make_web_dataset(self.val_data_dir, shuffle=0)
     
     def make_web_dataset(self, path, shuffle):
         warning = wds.reraise_exception if self.debug else wds.warn_and_continue
