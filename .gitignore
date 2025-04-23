@@ -17,4 +17,4 @@ utils/unzip.py
 slurm_output/*
 
 # Ignore examples folder
-examples/
+examples/*
