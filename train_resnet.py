@@ -152,7 +152,8 @@ def main(args):
                 block=block, 
                 layers=arch['layers'], 
                 input_channels=arch['in_channels'], 
-                num_classes=arch['out_channels']
+                num_classes=arch['out_channels'],
+                norm_layer=nn.LayerNorm
             )
     model = model.to(device)
     # torchsummary.summary(resnet, (3, 128, 128))

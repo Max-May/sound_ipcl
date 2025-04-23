@@ -1,6 +1,7 @@
 import os
 
 import torch
+from torch.nn import RMSNorm
 import torchaudio
 from torchaudio.functional import fftconvolve
 
@@ -84,8 +85,9 @@ def rampsound(sndtemp, rampdur:float, target_samplerate: int = 48000):
         raise TypeError(f'"{type(sndtemp)}" not recognized, expected "torch.Tenor" or "np.ndarray"')
 
     # ramp sound
-    sndtemp[0,0:rmpwin] = rampON*sndtemp[0,0:rmpwin] # ON, left channel
-    sndtemp[1,0:rmpwin] = rampON*sndtemp[1,0:rmpwin] # ON, right channel
+    # Currently testing only with ramp off
+    # sndtemp[0,0:rmpwin] = rampON*sndtemp[0,0:rmpwin] # ON, left channel
+    # sndtemp[1,0:rmpwin] = rampON*sndtemp[1,0:rmpwin] # ON, right channel
     sndtemp[0,np.shape(sndtemp)[1]-rmpwin:] = rampOFF*sndtemp[0,np.shape(sndtemp)[1]-rmpwin:np.shape(sndtemp)[1]] # OFF, left channel
     sndtemp[1,np.shape(sndtemp)[1]-rmpwin:] = rampOFF*sndtemp[1,np.shape(sndtemp)[1]-rmpwin:np.shape(sndtemp)[1]] # OFF, right channel  
 
@@ -107,17 +109,22 @@ def transform(audio: torch.Tensor, location_dist: torch.Tensor, n: float = 1., t
     second = int(n * target_samplerate) # Sampling rate
     total = convolved.shape[1]
 
-    spatialized = ramped[:, second:total-second-255] # 255 is hardcoded, is due to hrtf.Dimensions.N = 256; No solution yet
+    spatialized = ramped[:, second:total-second-255] # 255 is hardcoded, is due to hrtf.Dimensions.N = 256
     # print(f'Final shape: {convolved.shape}')
     return spatialized
 
 
 def resample(waveform: torch.Tensor, sr: int, target_samplerate: int):
+    # Unknown why there are sometimes 2 channels, so if there is a second one throw it away.
+    if waveform.shape[0] > 1:
+            # waveform  = torch.mean(waveform, dim=0, keepdim=True)
+        waveform = waveform[0]
+
     # Youtube's sample rate can also differ between 44.1 kHz and 48 kHz, so upsample if need be.
     if sr < target_samplerate:
         waveform = torchaudio.functional.resample(waveform, orig_freq = sr, new_freq = target_samplerate)
-    if waveform.shape[0] > 1:
-            waveform  = torch.mean(waveform, dim=0, keepdim=True)
+        
+    waveform = RMSNorm(waveform)
     return waveform
 
 
@@ -131,9 +138,9 @@ def __getitem__(sample,
     audio = resample(audio, sr, target_samplerate)
     nr_locations = locations(hrtf)
     label = torch.randint(0, nr_locations, (1,))
-    sliced = slice_audio(audio, slice_seconds=1.07) # This way you keep 1 second after last cut
+    sliced = slice_audio(audio, slice_seconds=1.7) # This way you keep 1 second after last cut
     localization = get_localization(hrtf, label)
     # Add ramping -- currently inside transform
-    transformed = transform(sliced, localization, n=0.035, target_samplerate=target_samplerate) # cut first and last 35ms from audio
+    transformed = transform(sliced, localization, n=0.35, target_samplerate=target_samplerate) # cut first and last 350ms from audio
     cochleagram = torch.from_numpy(generate_cochleagram(transformed, target_samplerate))
     return cochleagram, label

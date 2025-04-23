@@ -66,39 +66,46 @@ def main(args):
     model = model.to(device)
 
     # Data
-    train_data = AudioDataset(
-                    mode='inf',
-                    dir='/home/maxmay/files_to_copy.txt', 
-                    target_samplerate = 48000
-                )
-    val_loader = DataLoader(train_data, batch_size=4, shuffle=False)
-    # dataset = cfg['dataset']
-    # WAS = WebAudioSet(
-    #     base_data_dir = dataset['base_data_dir']+dataset['train_split']+'.tar',
-    #     val_data_dir = dataset['base_data_dir']+dataset['val_split']+'.tar',
-    #     hrtf_dir = dataset['sofa_dir'],
-    #     target_samplerate = dataset['sample_rate'],
-    #     batch_size = dataset['batch_size'],
-    #     resample= dataset['resample']
-    # )
-    # WAS.setup('inf')
-    # val_epoch_size = count_pattern_files(dataset['val_split'])
-    # val_loader = WAS.val_wds_loader(epoch_size=val_epoch_size, nr_workers=dataset['nr_workers'])
+    dataset = cfg['dataset']
+    # train_data = AudioDataset(
+    #                 mode='inf',
+    #                 dir='/home/maxmay/files_to_copy.txt', 
+    #                 target_samplerate = 48000
+    #             )
+    # val_loader = DataLoader(train_data, batch_size=dataset['batch_size'], shuffle=False)
+    WAS = WebAudioSet(
+        base_data_dir = dataset['base_data_dir']+dataset['train_split']+'.tar',
+        val_data_dir = dataset['base_data_dir']+dataset['val_split']+'.tar',
+        hrtf_dir = dataset['sofa_dir'],
+        target_samplerate = dataset['sample_rate'],
+        batch_size = dataset['batch_size'],
+        resample= dataset['resample']
+    )
+    WAS.setup('inf')
+    val_epoch_size = count_pattern_files(dataset['val_split'])
+    val_loader = WAS.val_wds_loader(epoch_size=val_epoch_size, nr_workers=dataset['nr_workers'])
+    # val_loader = val_loader.with_epoch(count_pattern_files(dataset['val_split']))
 
     print('=> Starting inference...')
-    for epoch in range(2):
+    for epoch in range(1):
         total_guessed = 0
+        correct = 0
         for idx, (data, labels) in enumerate(val_loader):
             data = data.to(device, dtype=torch.float)
             labels = labels.to(device)
             total_guessed += data.shape[0]
-            print(f'[Batch: {idx+1}/{len(val_loader)}]: {total_guessed}')
+            # print(f'[Batch: {idx+1}/{len(val_loader)}]: {total_guessed}')
+            print(f'[Batch: {idx+1}/{val_loader.nsamples}]:')
         
             pred = infer(model, data)
-            print(f'Currently predicted (labels, actual):')
-            print(*zip(pred, labels))
-            break
-        break
+            print(f'Predicted | Actual:')
+            for prediction, label in zip(pred, labels):
+                print(f'{prediction.item()} | {label.item()}')
+
+            correct += (pred == labels).sum().item()
+            print(f'{((correct/total_guessed)*100.):.2f}% correct')
+        print(f'Correctly guessed: {correct}/{total_guessed}')
+        
 
 
 def load_weights(model, fn: str, device='cpu'):
