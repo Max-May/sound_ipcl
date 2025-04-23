@@ -72,6 +72,7 @@ class AudioDataset(Dataset):
         if self.debug:
             begin = time.time()
         audio, label = data[0], data[1]
+        # print(f'Fetching {audio}')
         flac = self.load_flac(audio)
         sliced = self.slice_audio(flac, slice_seconds=1.07) # This way you keep 1 second after last cut
         localization = self.get_localization(label)
