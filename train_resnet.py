@@ -5,6 +5,7 @@ import numpy as np
 
 import torch
 from torch.utils.data import DataLoader
+from torch.utils.tensorboard import SummaryWriter
 import torch.optim as optim 
 import torch.nn as nn
 import torchsummary
@@ -22,7 +23,7 @@ import time
 from datetime import datetime
 
 
-def train(model, dataloader, criterion, scheduler, optimizer, device):
+def train(model, dataloader, criterion, scheduler, optimizer, device, writer=None):
     model.train()
 
     train_running_loss = 0.0
@@ -52,6 +53,7 @@ def train(model, dataloader, criterion, scheduler, optimizer, device):
 
         loss.backward()
         optimizer.step()
+        
 
     scheduler.step()
     epoch_loss = train_running_loss / counter
@@ -178,6 +180,7 @@ def main(args):
     current_loss = float(1e9)
     best_acc = 0.
     current_acc = 0.
+    writer_step = 0 # SumaryWriter step in case of resume training
 
     # If resuming, check if file exists and then load everything accordingly
     resume = args.resume
@@ -200,6 +203,7 @@ def main(args):
             val_loss = checkpoint['current_loss']
             best_acc = checkpoint['best_acc']
             val_acc = checkpoint['current_acc']
+            writer_step = checkpoint['writer_step']
 
             log = read_yaml(os.path.join('./logs', experiment, run_id, 'log.yaml'))
         
@@ -239,12 +243,17 @@ def main(args):
     nr_epochs = trainer['epochs']
     save_freq = trainer['save_freq']
 
+    # Setup for Tensorboard SummaryWriter
+    writer = SummaryWriter(log_dir=log_path)
+    if not hasattr(writer, 'step'):
+        writer.step = writer_step
+
     for epoch in range(start_epoch, nr_epochs):
         print(f'Epoch:[{epoch+1}/{nr_epochs}]')
-        train_acc, train_loss = train(model, train_loader, criterion, scheduler, optimizer, device)
+        train_acc, train_loss = train(model, train_loader, criterion, scheduler, optimizer, device, writer)
         print(f'Training accuracy: {train_acc:.3f} | Loss: {train_loss:.3f}')
 
-        val_acc, val_loss = validate(model, val_loader, criterion, device)
+        val_acc, val_loss = validate(model, val_loader, criterion, device, writer)
         print(f'Validation Accuracy: {val_acc:.3f} | Loss: {val_loss:.3f}\n')
 
         is_best = val_loss < best_loss
@@ -260,16 +269,37 @@ def main(args):
             'current_loss': val_loss,
             'best_acc': best_acc,
             'current_acc': val_acc,
+            'writer_step': writer_step,
         }, is_best=is_best, save_path=save_path)
 
-        if (epoch % save_freq) == 0:
-            # create a logger here
-            log = logger(log, epoch, 
-                {'train_acc': train_acc, 
-                'train_loss': train_loss, 
-                'val_acc': val_acc, 
-                'val_loss': val_loss},
-                log_path=log_path)
+        if writer:
+            writer.add_scalar(
+                'Loss/train',
+                losses.avg, global_step=writer.step
+            )
+            writer.add_scalars(
+                'Acc/train',
+                train_acc, global_step=writer.step
+            )
+            writer.add_scalar(
+                'Loss/validate',
+                val_loss, global_step=writer.step
+            )
+            writer.add_scalars(
+                'Acc/validate',
+                val_acc, global_step=writer.step
+            )
+
+        writer.step += 1
+
+        # if (epoch % save_freq) == 0:
+        #     # create a logger here
+        #     log = logger(log, epoch, 
+        #         {'train_acc': train_acc, 
+        #         'train_loss': train_loss, 
+        #         'val_acc': val_acc, 
+        #         'val_loss': val_loss},
+        #         log_path=log_path)
 
     print(f'Done training!')
 
