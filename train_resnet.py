@@ -10,7 +10,7 @@ import torch.optim as optim
 import torch.nn as nn
 import torchsummary
 
-from models.resnet import ResNet, Bottleneck
+from models.resnet import ResNet, Bottleneck, resnet50_groupnorm
 from dataloader.dataloader import AudioDataset
 from dataloader.WebAudioSet import WebAudioSet
 
@@ -150,13 +150,18 @@ def main(args):
     print(f'=> Building model with arch: {arch["_component_"]}')
     if arch['block'].lower() == 'bottleneck':
         block = Bottleneck
-    model = ResNet(
-                block=block, 
-                layers=arch['layers'], 
-                input_channels=arch['in_channels'], 
-                num_classes=arch['out_channels'],
-                norm_layer=nn.LayerNorm
-            )
+    # model = ResNet(
+    #             block=block, 
+    #             layers=arch['layers'], 
+    #             input_channels=arch['in_channels'], 
+    #             num_classes=arch['out_channels'],
+    #             norm_layer=nn.LayerNorm
+    #         )
+    model = resnet50_groupnorm(
+                input_channels=arch['in_channels'],
+                num_classes=arch['out_channels'], 
+                num_groups=1
+                )
     model = model.to(device)
     # torchsummary.summary(resnet, (3, 128, 128))
 
@@ -224,7 +229,7 @@ def main(args):
     dataset = cfg['dataset']
     WAS = WebAudioSet(
         base_data_dir = dataset['base_data_dir']+dataset['train_split']+'.tar',
-        val_data_dir = dataset['base_data_dir']+dataset['val_split']+'.tar',
+        val_data_dir = dataset['val_data_dir']+dataset['val_split']+'.tar',
         hrtf_dir = dataset['sofa_dir'],
         target_samplerate = dataset['sample_rate'],
         batch_size = dataset['batch_size'],
@@ -250,10 +255,10 @@ def main(args):
 
     for epoch in range(start_epoch, nr_epochs):
         print(f'Epoch:[{epoch+1}/{nr_epochs}]')
-        train_acc, train_loss = train(model, train_loader, criterion, scheduler, optimizer, device, writer)
+        train_acc, train_loss = train(model, train_loader, criterion, scheduler, optimizer, device)
         print(f'Training accuracy: {train_acc:.3f} | Loss: {train_loss:.3f}')
 
-        val_acc, val_loss = validate(model, val_loader, criterion, device, writer)
+        val_acc, val_loss = validate(model, val_loader, criterion, device)
         print(f'Validation Accuracy: {val_acc:.3f} | Loss: {val_loss:.3f}\n')
 
         is_best = val_loss < best_loss
@@ -272,23 +277,22 @@ def main(args):
             'writer_step': writer_step,
         }, is_best=is_best, save_path=save_path)
 
-        if writer:
-            writer.add_scalar(
-                'Loss/train',
-                losses.avg, global_step=writer.step
-            )
-            writer.add_scalars(
-                'Acc/train',
-                train_acc, global_step=writer.step
-            )
-            writer.add_scalar(
-                'Loss/validate',
-                val_loss, global_step=writer.step
-            )
-            writer.add_scalars(
-                'Acc/validate',
-                val_acc, global_step=writer.step
-            )
+        writer.add_scalar(
+            'Loss/train',
+            train_loss, global_step=writer.step
+        )
+        writer.add_scalar(
+            'Acc/train',
+            train_acc, global_step=writer.step
+        )
+        writer.add_scalar(
+            'Loss/validate',
+            val_loss, global_step=writer.step
+        )
+        writer.add_scalar(
+            'Acc/validate',
+            val_acc, global_step=writer.step
+        )
 
         writer.step += 1
 

@@ -63,6 +63,7 @@ class WebAudioSet(Dataset):
     
     def make_web_dataset(self, path, shuffle):
         warning = wds.reraise_exception if self.debug else wds.warn_and_continue
+        # warning = wds.reraise_exception
         pre_process_function = partial(__getitem__,
                                         hrtf=self.hrtf,
                                         target_samplerate=self.target_samplerate)

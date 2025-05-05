@@ -27,6 +27,11 @@ def conv1x1(in_planes: int, out_planes: int, stride: int = 1) -> nn.Conv2d:
     return nn.Conv2d(in_planes, out_planes, kernel_size=1, stride=stride, bias=False)
 
 
+def group_norm(num_channels: int, num_groups: int = 16):
+    groups = min(num_groups, num_channels)
+    return nn.GroupNorm(groups, num_channels)
+    
+
 class BasicBlock(nn.Module):
     expansion: int = 1
 
@@ -257,6 +262,16 @@ class ResNet(nn.Module):
     def forward(self, x: Tensor) -> Tensor:
         return self._forward_impl(x)
 
+
+# Instantiate ResNet50 with GroupNorm instead of BatchNorm
+def resnet50_groupnorm(input_channels=3, num_classes=1000, num_groups=16):
+    return ResNet(
+        block=Bottleneck,
+        layers=[3, 4, 6, 3],
+        input_channels=input_channels,
+        num_classes=num_classes,
+        norm_layer=lambda nc: group_norm(nc, num_groups=num_groups)
+    )
 
 def main():
     tensor = torch.rand([1, 2, 224, 224])
