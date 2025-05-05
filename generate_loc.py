@@ -10,10 +10,12 @@ from torchaudio.functional import fftconvolve
 
 from dataloader.Generate_Cochleagram import generate_cochleagram
 
-# LEFT = [45., 0., 1.5]
-# RIGHT = [360-45., 0., 1.5]
+import matplotlib.pyplot as plt 
+
+# LEFT = [90., 0., 1.5]
+# RIGHT = [270., 0., 1.5]
 # FRONT = [0., 0., 1.5]
-locations = {'front': 4, 'right': 211, 'left': 639}
+locations = {'front': 4, 'right': 418, 'left': 432}
 
 
 def open_sofa(fn: str = None):
@@ -27,6 +29,26 @@ def open_sofa(fn: str = None):
     return hrtf
 
 
+def load_flac(fn: str):
+    waveform, _ = torchaudio.load(fn)
+    return waveform
+
+
+def rms_norm(x, target=0.9):
+    # calculate current rms over entire sound clip
+    print("min/max before norm: ", torch.min(x), torch.max(x))
+    rms_temp = torch.sqrt(torch.sum(torch.square(x))/x.shape[1])
+    print("rms temp: ", rms_temp)
+
+    # target rms
+    rms_tar = target
+    scalefact = rms_tar/rms_temp
+    print("scale factor: ", scalefact)
+    x = torch.mul(scalefact,x)
+    print(torch.min(x), torch.max(x))
+    return x
+
+
 def preprocess(fn, norm, cutoff=1.7, target_samplerate=48000):
     waveform, sr = torchaudio.load(fn)
     if waveform.shape[0] > 1:
@@ -37,8 +59,11 @@ def preprocess(fn, norm, cutoff=1.7, target_samplerate=48000):
     num_frames = int(cutoff * target_samplerate)
 
     waveform = waveform[0:num_frames]
-    normalized = norm(waveform)
-    normalized = torch.unsqueeze(normalized, 0)
+    print("preprocess: ", waveform.shape)
+    if len(waveform.shape) == 1:
+        waveform = torch.unsqueeze(waveform, 0)
+    normalized = norm(waveform, target=0.05)
+
     return normalized
 
 
@@ -111,40 +136,50 @@ def rampsound(sndtemp, rampdur:float, target_samplerate: int = 48000):
 
 def main():
     data_dir = '../Data/audio/bal_train'
-    files = ['00mE-lhe_R8.flac', '00W1lcxW-WU.flac', '0150dZu3Na8.flac', '01B907_Gyys.flac']
-    # files = ['00M9FhCet6s.flac']
+    # data_dir = './results/normalization'
+    # files = ['00mE-lhe_R8.flac', '00W1lcxW-WU.flac', '0150dZu3Na8.flac', '01B907_Gyys.flac']
+    files = ['00M9FhCet6s.flac']
     target_samplerate = 48000
-    nr_frames = int(target_samplerate*1.7)
+    seconds = 1.7
+    nr_frames = int(target_samplerate*seconds)
     print(f'Nr of frames: {nr_frames}')
-    norm = RMSNorm([nr_frames])
+    # norm = RMSNorm([nr_frames])
+    norm = rms_norm
 
     for file in files:
         print(file)
-        filename = os.path.join(data_dir, file)
         fn = file.strip('.flac')
         fn += '_'
+        # file = file.replace('.flac', '_norm.flac')
+        filename = os.path.join(data_dir, file)
         save_path = os.path.join('./results/cochleagrams', fn)
 
         hrtf = open_sofa('./utils/KEMAR_Knowl_EarSim_SmallEars_FreeFieldComp_48kHz.sofa')
-        normalized = preprocess(filename, norm, cutoff=1.7)
-        # print(normalized.shape)
+        normalized = preprocess(filename, norm, cutoff=seconds)
 
-        for direction in locations:
-            m = locations[direction]
-            print(direction, ':', m)
-            dist = get_localization(hrtf, m)
-            localized = transform(normalized, dist, n=0.35, target_samplerate=target_samplerate)
-            cochleagram = generate_cochleagram(localized.detach().numpy(), target_samplerate)
+        # normalized = load_flac(filename)
+        # normalized = normalized[:, :nr_frames]
+        print(normalized.shape)
+        print(normalized)
 
-            save_fn = save_path + direction
-            print(save_fn)
+        plt.plot(normalized)
+        plt.show()
+        # for direction in locations:
+        #     m = locations[direction]
+        #     print(direction, ':', m)
+        #     dist = get_localization(hrtf, m)
+        #     localized = transform(normalized, dist, n=0.35, target_samplerate=target_samplerate)
+        #     cochleagram = generate_cochleagram(localized.detach().numpy(), target_samplerate)
 
-            print(cochleagram.shape)
-            print(cochleagram)
-            print()
+        #     save_fn = save_path + direction
+        #     print(save_fn)
 
-            np.save(save_fn + '.npy',
-                    cochleagram)
+        # #     print(cochleagram.shape)
+        # #     print(cochleagram)
+        # #     print()
+
+            # np.save(save_fn + '.npy',
+            #         cochleagram)
             # torchaudio.save(save_fn+'.flac', 
             #                 localized, 
             #                 target_samplerate)
