@@ -35,8 +35,9 @@ def train(model, dataloader, criterion, scheduler, optimizer, device):
     for idx, (data, labels) in enumerate(dataloader):
         counter += 1
         total_guessed += data.shape[0]
-        print(f'[Batch: {idx+1}/{dataloader.nsamples}]: {total_guessed}', end="\r", flush=True)
-
+        if (idx % 100) == 0:
+        # print(f'[Batch: {idx+1}/{dataloader.nsamples}]: {total_guessed}', end="\r", flush=True)
+            print(f'[Batch: {idx+1}/{dataloader.nsamples}]: {total_guessed}')
         data = data.to(device, dtype=torch.float)
         labels = labels.to(device)
 
@@ -82,8 +83,9 @@ def validate(model, dataloader, criterion, device):
     for idx, (data, labels) in enumerate(dataloader):
         counter += 1
         total_guessed += data.shape[0]
-        print(f'[Batch: {idx+1}/{dataloader.nsamples}]: {total_guessed}', end="\r", flush=True)
-
+        if (idx % 100) == 0:
+        # print(f'[Batch: {idx+1}/{dataloader.nsamples}]: {total_guessed}', end="\r", flush=True)
+            print(f'[Batch: {idx+1}/{dataloader.nsamples}]: {total_guessed}')
         data = data.to(device, dtype=torch.float)
         labels = labels.to(device)
          
