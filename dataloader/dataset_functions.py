@@ -1,7 +1,6 @@
 import os
 
 import torch
-from torch.nn import RMSNorm
 import torchaudio
 from torchaudio.functional import fftconvolve
 
@@ -114,17 +113,59 @@ def transform(audio: torch.Tensor, location_dist: torch.Tensor, n: float = 1., t
     return spatialized
 
 
+def compute_rms(y):
+    """Returns RMS energy of audio signal."""
+    if torch.is_tensor(y):
+        # return torch.sqrt(torch.sum(torch.square(y))/y.shape[1])
+        rms = torch.sqrt(torch.mean(torch.square(y)))
+        # if rms == 0:
+        #     raise ValueError(f'RMS temp equals zero {torch.mean(y)}, {torch.std(y)}')
+        return rms
+    else:
+        return np.sqrt(np.mean(y**2))
+
+
+def rms_normalize(x, target=0.05, eps=1e-12):
+    if not torch.is_tensor(x):
+        x = torch.tensor(x)
+    # if torch.isnan(x).any():
+    #     raise ValueError(f"Original sample contains Nan values")
+
+    # print("min/max before norm: ", torch.min(x), torch.max(x))
+    # rms_temp = torch.sqrt(torch.sum(torch.square(x))/x.shape[1])
+    # rms_temp = torch.sqrt(torch.mean(torch.square(x)))
+    rms_temp = compute_rms(x)
+    # if torch.isnan(rms_temp).any():
+    #     raise ValueError(f"Sample contains Nan values after rms temp calculation")
+    # print("rms temp: ", rms_temp)
+
+    # target rms
+    rms_tar = target
+    scalefact = rms_tar/(rms_temp + eps)
+    if not torch.isfinite(scalefact).any():
+        raise ValueError(f"Got scalefactor: {scalefact} by dividing: {rms_tar}/{rms_temp}")
+    # print("scale factor: ", scalefact)
+
+    x_hat = torch.mul(scalefact,x)
+    # if torch.isnan(x_hat).any():
+    #     raise ValueError(f"Got Nan values multiplying scalefactor ({scalefact}) with matrix \n{x}")
+    # print(torch.min(x), torch.max(x))
+    return x_hat
+
+
 def resample(waveform: torch.Tensor, sr: int, target_samplerate: int):
     # Unknown why there are sometimes 2 channels, so if there is a second one throw it away.
-    if waveform.shape[0] > 1:
+    if len(waveform.shape) == 2 and waveform.shape[0] > 1:
             # waveform  = torch.mean(waveform, dim=0, keepdim=True)
         waveform = waveform[0]
 
     # Youtube's sample rate can also differ between 44.1 kHz and 48 kHz, so upsample if need be.
     if sr < target_samplerate:
         waveform = torchaudio.functional.resample(waveform, orig_freq = sr, new_freq = target_samplerate)
-        
-    waveform = RMSNorm(waveform)
+    
+    if len(waveform.shape) == 1:
+        waveform = torch.unsqueeze(waveform, 0)
+
     return waveform
 
 
@@ -135,12 +176,63 @@ def __getitem__(sample,
         audio,sr = sample[".flac"]
     else:
         audio,sr = sample[0]
+    # print('step 1 ', audio.shape)
+    # Resample if audio is not 48 kHz
     audio = resample(audio, sr, target_samplerate)
+    # print('step 2 ', audio.shape)
+    # Normalize audio using Root Mean Square normalization (this normalizes wave energy)
+    normalized_audio = rms_normalize(audio, target=0.12) # Target is based 
+    # print('step 3 ', normalized_audio.shape)
+    # Fetch random location and store as label
     nr_locations = locations(hrtf)
     label = torch.randint(0, nr_locations, (1,))
-    sliced = slice_audio(audio, slice_seconds=1.7) # This way you keep 1 second after last cut
+    # Get random audio slice
+    sliced = slice_audio(normalized_audio, slice_seconds=1.7) # This way you keep 1 second after last cut
+    # print('step 4 ', sliced.shape)
+    # Convolve with location HRTF
     localization = get_localization(hrtf, label)
     # Add ramping -- currently inside transform
+    # And cut first and last 35 ms from audio, due to artifacts
     transformed = transform(sliced, localization, n=0.35, target_samplerate=target_samplerate) # cut first and last 350ms from audio
+    # print('step 5 ', transformed.shape)
+    # Calculate the cochleagram
     cochleagram = torch.from_numpy(generate_cochleagram(transformed, target_samplerate))
+    # print('step 6 ', cochleagram.shape)
     return cochleagram, label
+
+
+def tmp_slice_debug(audio, sr, time=1):
+    window = int(sr * time)
+    assert window <= audio.shape[1], f"Number of frames to pick cannot exceed the total number of frames ({window} > {audio.shape[1]})"
+    sliced = audio[:, :window]
+    return sliced
+
+def __getitem__debug(sample,
+                hrtf,
+                target_samplerate:int = 48000):
+    if isinstance(sample, dict):
+        audio,sr = sample[".flac"]
+    else:
+        audio,sr = sample[0]
+
+    # Resample if audio is not 48 kHz
+    audio = resample(audio, sr, target_samplerate)
+    # Normalize audio using Root Mean Square normalization (this normalizes wave energy)
+    normalized_audio = rms_normalize(audio, target=0.12) # Target is based 
+    audio = tmp_slice_debug(normalized_audio, target_samplerate, time=1)
+    # Fetch random location and store as label
+    nr_locations = locations(hrtf)
+    label = torch.randint(0, nr_locations, (1,))
+    # Get random audio slice
+    # sliced = slice_audio(normalized_audio, slice_seconds=1.7) # This way you keep 1 second after last cut
+
+    # Convolve with location HRTF
+    # localization = get_localization(hrtf, label)
+    # Add ramping -- currently inside transform
+    # And cut first and last 35 ms from audio, due to artifacts
+    # transformed = transform(sliced, localization, n=0.35, target_samplerate=target_samplerate) # cut first and last 350ms from audio
+
+    # Calculate the cochleagram
+    # cochleagram = torch.from_numpy(generate_cochleagram(transformed, target_samplerate))
+    # return cochleagram, label
+    return audio, label
