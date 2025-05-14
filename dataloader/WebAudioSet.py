@@ -31,6 +31,10 @@ def collate_fn(batch):
     x, y = batch
     # print("Collate X: ", x.shape)
     # print("Collate Y: ", y.shape) 
+    # Not yet sure if this is the way, but it should handle nans
+    # if not torch.isfinite(x).all():
+    #     print(f"Bad batch contains nan:\n{torch.isfinite(x)}")
+    #     x = torch.nan_to_num(x)
     return x, y.flatten(start_dim=0, end_dim = 1)
 
 

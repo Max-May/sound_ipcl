@@ -23,6 +23,13 @@ import time
 from datetime import datetime
 
 
+def check_for_nans(tensor, name="tensor"):
+    if not torch.isfinite(tensor).all():
+        print(f"[NaN/Inf DETECTED] in {name}")
+        print(f"{tensor}")
+        raise ValueError(f"Invalid value detected in {name}")
+
+
 def train(model, dataloader, criterion, scheduler, optimizer, device, writer=None):
     model.train()
 
@@ -33,31 +40,55 @@ def train(model, dataloader, criterion, scheduler, optimizer, device, writer=Non
 
     time_total = 0
     time_start = time.time()
+    # nr_nans_batch = 0
+    # nr_nans_files = 0
+
     for idx, (data, labels) in enumerate(dataloader):
         counter += 1
         total_guessed += data.shape[0]
-        print(f'[Batch: {idx+1}/{dataloader.nsamples}]: {total_guessed}', end="\r", flush=True)
+        # print(f'[Batch: {idx+1}/{dataloader.nsamples}]: {total_guessed}', end="\r", flush=True)
 
-        data = data.to(device, dtype=torch.float)
-        labels = labels.to(device)
+        # Debugging purpose
+        try:
+            data = data.to(device, dtype=torch.float)
+            labels = labels.to(device)
 
-        # Forward pass
-        outputs = model(data)
-        # Calculate loss
-        loss = criterion(outputs, labels)
-        train_running_loss += loss.item()
+            # print(f'[Batch: {idx+1}/{dataloader.nsamples}]')
+            # check_for_nans(data, name=f"inputs in batch {idx+1}")
+            # nans = torch.isnan(data).any().item()
+            # print(f'Input: {data.shape}\nContains nan: {nans}')
+            # if nans:
+            #     nr_nans_batch += 1
+            #     print(data)
+            #     for x in data:
+            #         if torch.isnan(x).any().item():
+            #             nr_nans_files += 1
 
-        # Calculate accuracy
-        _, preds = torch.max(outputs.data, 1)
-        train_running_acc += (preds == labels).sum().item()
+            # Forward pass
+            outputs = model(data)
+            # print(f'Output: {outputs.shape}\nContains nan: {torch.isnan(outputs).any().item()}\n{outputs}')
+            # check_for_nans(outputs, name=f"outputs in batch {idx+1}")
+            # Calculate loss
+            loss = criterion(outputs, labels)
+            # check_for_nans(loss, name=f"loss in batch {idx+1}")
+            train_running_loss += loss.item()
 
-        loss.backward()
-        optimizer.step()
-        
+            # Calculate accuracy
+            _, preds = torch.max(outputs.data, 1)
+            train_running_acc += (preds == labels).sum().item()
 
+            loss.backward()
+            optimizer.step()
+        except Exception as e:
+            print(f"Exception in training batch {idx+1}: {e}")
+            break
+
+    # print(f"Training:\nAmount of corrupted batches: {nr_nans_batch}\nAmount of corrupted files: {nr_nans_files}")
     scheduler.step()
     epoch_loss = train_running_loss / counter
     epoch_acc = 100. * (train_running_acc / total_guessed)
+    # epoch_loss = 0
+    # epoch_acc = 0
     return epoch_acc, epoch_loss
 
         # time_now = time.time()
@@ -81,26 +112,47 @@ def validate(model, dataloader, criterion, device):
     counter = 0
     total_guessed = 0
 
+    nr_nans_batch = 0
+    nr_nans_files = 0
     for idx, (data, labels) in enumerate(dataloader):
         counter += 1
         total_guessed += data.shape[0]
-        print(f'[Batch: {idx+1}/{dataloader.nsamples}]: {total_guessed}', end="\r", flush=True)
+        # print(f'[Batch: {idx+1}/{dataloader.nsamples}]: {total_guessed}', end="\r", flush=True)
 
-        data = data.to(device, dtype=torch.float)
-        labels = labels.to(device)
-         
-        # Forward pass.
-        outputs = model(data)
-        # Calculate the loss.
-        loss = criterion(outputs, labels)
-        valid_running_loss += loss.item()
-        # Calculate the accuracy.
-        _, preds = torch.max(outputs.data, 1)
-        valid_running_correct += (preds == labels).sum().item()
+        try:
+            data = data.to(device, dtype=torch.float)
+            labels = labels.to(device)
+            
+            # nans = torch.isnan(data).any().item()
+            # # check_for_nans(data, name=f"inputs in batch {idx+1}")
+            # if nans:
+            #     nr_nans_batch += 1
+            #     print(data)
+            #     for x in data:
+            #         if torch.isnan(x).any().item():
+            #             nr_nans_files += 1
 
+            # continue
+            # Forward pass.
+            outputs = model(data)
+            # check_for_nans(outputs, name=f"outputs in batch {idx+1}")
+            # Calculate the loss.
+            loss = criterion(outputs, labels)
+            # check_for_nans(loss, name=f"loss in batch {idx+1}")
+            valid_running_loss += loss.item()
+            # Calculate the accuracy.
+            _, preds = torch.max(outputs.data, 1)
+            valid_running_correct += (preds == labels).sum().item()
+        except Exception as e:
+            print(f"Exception in validating batch {idx+1}")
+            break
+
+    # print(f"Validation:\nAmount of corrupted batches: {nr_nans_batch}\nAmount of corrupted files: {nr_nans_files}")
     # Loss and accuracy for the complete epoch.
     epoch_loss = valid_running_loss / counter
     epoch_acc = 100. * (valid_running_correct / total_guessed)
+    # epoch_loss = 0
+    # epoch_acc = 0
     return epoch_acc, epoch_loss
 
     # time_total = 0
@@ -137,7 +189,7 @@ def main(args):
     # use_cuda = torch.cuda.is_available()
     n_gpus = cfg['n_gpu']
     use_cuda = True if n_gpus > 0 else False
-    device = torch.device("cuda" if use_cuda else "cpu")
+    device = torch.device("cuda:2" if use_cuda else "cpu")
     if use_cuda:
         torch.backends.cudnn.benchmark = True
         curr_device = torch.cuda.current_device()
@@ -150,18 +202,17 @@ def main(args):
     print(f'=> Building model with arch: {arch["_component_"]}')
     if arch['block'].lower() == 'bottleneck':
         block = Bottleneck
-    # model = ResNet(
-    #             block=block, 
-    #             layers=arch['layers'], 
-    #             input_channels=arch['in_channels'], 
-    #             num_classes=arch['out_channels'],
-    #             norm_layer=nn.LayerNorm
-    #         )
-    model = resnet50_groupnorm(
-                input_channels=arch['in_channels'],
-                num_classes=arch['out_channels'], 
-                num_groups=1
-                )
+    model = ResNet(
+                block=block, 
+                layers=arch['layers'], 
+                input_channels=arch['in_channels'], 
+                num_classes=arch['out_channels'],
+            )
+    # model = resnet50_groupnorm(
+    #             input_channels=arch['in_channels'],
+    #             num_classes=arch['out_channels'], 
+    #             num_groups=1
+    #             )
     model = model.to(device)
     # torchsummary.summary(resnet, (3, 128, 128))
 
@@ -172,7 +223,7 @@ def main(args):
 
     scheduler = cfg['scheduler']
     if scheduler['_component_'].lower() == 'multisteplr':
-        scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones = [40,60], gamma=.75) # 60 is added in case a higher number of epochs is used
+        scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones = [5,10], gamma=.75) # 60 is added in case a higher number of epochs is used
 
     # Loss function.
     criterion = cfg['criterion']
@@ -235,7 +286,10 @@ def main(args):
         batch_size = dataset['batch_size'],
         resample= dataset['resample']
     )
+    print(f"=> Train data path: {dataset['base_data_dir']+dataset['train_split']+'.tar'}")
+    print(f"=> Validate data path: {dataset['val_data_dir']+dataset['val_split']+'.tar'}")
     WAS.setup('fit')
+
     train_epoch_size = count_pattern_files(dataset['train_split'])
     val_epoch_size = count_pattern_files(dataset['val_split'])
 
