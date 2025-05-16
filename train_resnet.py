@@ -189,7 +189,7 @@ def main(args):
     # use_cuda = torch.cuda.is_available()
     n_gpus = cfg['n_gpu']
     use_cuda = True if n_gpus > 0 else False
-    device = torch.device("cuda:2" if use_cuda else "cpu")
+    device = torch.device("cuda:0" if use_cuda else "cpu")
     if use_cuda:
         torch.backends.cudnn.benchmark = True
         curr_device = torch.cuda.current_device()
