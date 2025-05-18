@@ -207,7 +207,7 @@ def tmp_slice_debug(audio, sr, time=1):
     sliced = audio[:, :window]
     return sliced
 
-def __getitem__debug(sample,
+def __getitem_debug__(sample,
                 hrtf,
                 target_samplerate:int = 48000):
     if isinstance(sample, dict):
@@ -215,24 +215,27 @@ def __getitem__debug(sample,
     else:
         audio,sr = sample[0]
 
+    # print('step 1 ', audio.shape)
     # Resample if audio is not 48 kHz
     audio = resample(audio, sr, target_samplerate)
+    # print('step 2 ', audio.shape)
     # Normalize audio using Root Mean Square normalization (this normalizes wave energy)
-    normalized_audio = rms_normalize(audio, target=0.12) # Target is based 
-    audio = tmp_slice_debug(normalized_audio, target_samplerate, time=1)
+    normalized_audio = rms_normalize(audio, target=0.12) # Target is based
+    # print('step 3 ', normalized_audio.shape)
     # Fetch random location and store as label
     nr_locations = locations(hrtf)
     label = torch.randint(0, nr_locations, (1,))
     # Get random audio slice
-    # sliced = slice_audio(normalized_audio, slice_seconds=1.7) # This way you keep 1 second after last cut
-
+    sliced = slice_audio(normalized_audio, slice_seconds=1.7) # This way you keep 1 second after last cut
+    # print('step 4 ', sliced.shape)
     # Convolve with location HRTF
-    # localization = get_localization(hrtf, label)
+    localization = get_localization(hrtf, label)
     # Add ramping -- currently inside transform
     # And cut first and last 35 ms from audio, due to artifacts
-    # transformed = transform(sliced, localization, n=0.35, target_samplerate=target_samplerate) # cut first and last 350ms from audio
-
+    transformed = transform(sliced, localization, n=0.35, target_samplerate=target_samplerate) # cut first and last 350ms from audio
+    # print('step 5 ', transformed.shape)
     # Calculate the cochleagram
     # cochleagram = torch.from_numpy(generate_cochleagram(transformed, target_samplerate))
+    # print('step 6 ', cochleagram.shape)
+    return transformed, label
     # return cochleagram, label
-    return audio, label
