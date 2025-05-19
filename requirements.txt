@@ -37,6 +37,7 @@ packaging==24.2
 pillow==11.1.0
 protobuf==6.30.2
 pycochleagram==0.1
+pyFFTW==0.14.0
 pyparsing==3.2.1
 python-dateutil==2.9.0.post0
 python-sofa==0.2.0

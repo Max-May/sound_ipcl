@@ -18,7 +18,7 @@ os.environ["GOPEN_VERBOSE"] = "0"
 import sofa
 from tqdm import tqdm
 
-from .dataset_functions import __getitem__ #, __len__, __size__
+from .dataset_functions import __getitem__, __getitem_debug__ #, __len__, __size__
 from functools import partial
 
 

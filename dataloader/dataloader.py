@@ -74,10 +74,10 @@ class AudioDataset(Dataset):
         audio, label = data[0], data[1]
         # print(f'Fetching {audio}')
         flac = self.load_flac(audio)
-        sliced = self.slice_audio(flac, slice_seconds=1.07) # This way you keep 1 second after last cut
+        sliced = self.slice_audio(flac, slice_seconds=1.7) # This way you keep 1 second after last cut
         localization = self.get_localization(label)
         # Add ramping -- currently inside transform
-        transform = self.transform(sliced, localization, n=0.035) # cut first and last 35ms from audio
+        transform = self.transform(sliced, localization, n=0.35) # cut first and last 35ms from audio
         cochleagram = torch.from_numpy(generate_cochleagram(transform, self.target_samplerate))
         if self.debug:
             print(f'took: {(time.time()-begin):.2f} seconds')
