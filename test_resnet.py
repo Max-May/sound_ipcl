@@ -75,7 +75,7 @@ def main(args):
     # val_loader = DataLoader(train_data, batch_size=dataset['batch_size'], shuffle=False)
     WAS = WebAudioSet(
         base_data_dir = dataset['base_data_dir']+dataset['train_split']+'.tar',
-        val_data_dir = dataset['base_data_dir']+dataset['val_split']+'.tar',
+        val_data_dir = dataset['val_data_dir']+dataset['val_split']+'.tar',
         hrtf_dir = dataset['sofa_dir'],
         target_samplerate = dataset['sample_rate'],
         batch_size = dataset['batch_size'],
@@ -86,25 +86,33 @@ def main(args):
     val_loader = WAS.val_wds_loader(epoch_size=val_epoch_size, nr_workers=dataset['nr_workers'])
     # val_loader = val_loader.with_epoch(count_pattern_files(dataset['val_split']))
 
-    print('=> Starting inference...')
-    for epoch in range(1):
-        total_guessed = 0
-        correct = 0
-        for idx, (data, labels) in enumerate(val_loader):
-            data = data.to(device, dtype=torch.float)
-            labels = labels.to(device)
-            total_guessed += data.shape[0]
-            # print(f'[Batch: {idx+1}/{len(val_loader)}]: {total_guessed}')
-            print(f'[Batch: {idx+1}/{val_loader.nsamples}]:')
-        
-            pred = infer(model, data)
-            print(f'Predicted | Actual:')
-            for prediction, label in zip(pred, labels):
-                print(f'{prediction.item()} | {label.item()}')
+    predictions = []
+    labels_used = []
 
-            correct += (pred == labels).sum().item()
-            print(f'{((correct/total_guessed)*100.):.2f}% correct')
-        print(f'Correctly guessed: {correct}/{total_guessed}')
+    print('=> Starting inference...')
+    total_guessed = 0
+    correct = 0
+    for idx, (data, labels) in enumerate(val_loader):
+        data = data.to(device, dtype=torch.float)
+        labels = labels.to(device)
+        total_guessed += data.shape[0]
+        # print(f'[Batch: {idx+1}/{len(val_loader)}]: {total_guessed}')
+        print(f'[Batch: {idx+1}/{val_loader.nsamples}]:')
+        
+        pred = infer(model, data)
+        predictions.append(pred)
+        labels_used.append(labels)
+        print(predictions)
+        print(labels_used)
+        print()
+        print(f'Predicted | Actual:')
+        for prediction, label in zip(pred, labels):
+            print(f'{prediction.item()} | {label.item()}')
+
+        correct += (pred == labels).sum().item()
+        print(f'{((correct/total_guessed)*100.):.2f}% correct')
+        break
+    print(f'Correctly guessed: {correct}/{total_guessed}')
         
 
 
