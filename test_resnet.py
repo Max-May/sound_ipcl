@@ -102,8 +102,8 @@ def main(args):
         pred = infer(model, data)
         predictions.append(pred)
         labels_used.append(labels)
-        print(predictions)
-        print(labels_used)
+        # print(predictions)
+        # print(labels_used)
         print()
         print(f'Predicted | Actual:')
         for prediction, label in zip(pred, labels):
@@ -111,9 +111,13 @@ def main(args):
 
         correct += (pred == labels).sum().item()
         print(f'{((correct/total_guessed)*100.):.2f}% correct')
-        break
-    print(f'Correctly guessed: {correct}/{total_guessed}')
         
+    print(f'Correctly guessed: {correct}/{total_guessed}')
+    predictions = torch.stack(predictions).detach().numpy()
+    labels_used = torch.stack(labels_used).detach().numpy()
+
+    np.save('./results/confusion/20250415/predictions.npy', predictions)
+    np.save('./results/confusion/20250415/labels.npy', labels_used)
 
 
 def load_weights(model, fn: str, device='cpu'):
