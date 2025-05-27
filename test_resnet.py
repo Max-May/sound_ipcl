@@ -102,19 +102,32 @@ def main(args):
         pred = infer(model, data)
         predictions.append(pred)
         labels_used.append(labels)
-        print(predictions)
-        print(labels_used)
-        print()
-        print(f'Predicted | Actual:')
-        for prediction, label in zip(pred, labels):
-            print(f'{prediction.item()} | {label.item()}')
+        # print(predictions)
+        # print(labels_used)
+        # print()
+        # print(f'Predicted | Actual:')
+        # for prediction, label in zip(pred, labels):
+        #     print(f'{prediction.item()} | {label.item()}')
 
         correct += (pred == labels).sum().item()
         print(f'{((correct/total_guessed)*100.):.2f}% correct')
-        break
-    print(f'Correctly guessed: {correct}/{total_guessed}')
-        
 
+    print(f'Correctly guessed: {correct}/{total_guessed}')
+    if use_cuda:
+        predictions = torch.stack(predictions).cpu().detach().numpy()
+        labels_used = torch.stack(labels_used).cpu().detach().numpy()
+    else:
+        predictions = torch.stack(predictions).detach().numpy()
+        labels_used = torch.stack(labels_used).detach().numpy()
+
+    save_numpy('./results/confusion/20250415/', 'predictions_full.npy', predictions)
+    save_numpy('./results/confusion/20250415/', 'labels_full.npy', labels_used)
+
+
+def save_numpy(save_path, filename, array):
+    Path(save_path).mkdir(parents=True, exist_ok=True)
+    fn = os.path.join(save_path, filename)
+    np.save(fn, array)
 
 def load_weights(model, fn: str, device='cpu'):
     assert os.path.exists(fn), f'"{fn}" must be a valid path'
