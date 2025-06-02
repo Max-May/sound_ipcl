@@ -7,7 +7,10 @@ from models.resnet import ResNet, Bottleneck
 from ipcl.ipcl import IPCL
 
 def main():
-    input = torch.rand(5,2,39,8000)
+    n_samples = 5
+    input = torch.rand(n_samples,2,39,8000)
+    targs = torch.randint(0, 828, (1,))
+    targs = targs.repeat(n_samples)
 
     encoder = ResNet(
         block=Bottleneck,
@@ -23,11 +26,16 @@ def main():
         K=4096,
         T=0.07,
         out_dim=128,
-        n_samples=5
+        n_samples=n_samples
     )
 
-    loss, (x, y) = learner(input)
-
+    loss, (embeddings, prototype) = learner(input, targs)
+    print(f'Loss: {loss}')
+    print(f'X: {embeddings.shape}')
+    print(f'Prototype: {prototype.shape}')
+    feat = embeddings.chunk(n_samples)[0].detach().cpu()
+    feat = feat.view(feat.shape[0],-1)
+    print(f'Feat: {feat.shape}')
 
 
 if __name__ == '__main__':

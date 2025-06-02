@@ -170,8 +170,11 @@ def validate(model, dataloader, criterion, device):
 
 def main(args):
     debug = args.debug
+    store_all = args.store
     if debug:
         print(f'=> Debugging mode is active!')
+    if not store_all:
+        print(f"WARNING: 'store_all' = {store_all}, run won't be saved")
     try:
         cfg = read_yaml(args.config)
     except Exception as e:
@@ -187,14 +190,16 @@ def main(args):
 
     # CUDA for PyTorch
     # use_cuda = torch.cuda.is_available()
-    n_gpus = cfg['n_gpu']
+    gpu = cfg['gpu']
+    n_gpus = gpu['n_gpu']
     use_cuda = True if n_gpus > 0 else False
-    device = torch.device("cuda" if use_cuda else "cpu")
     if use_cuda:
+        cuda = gpu['cuda']
         torch.backends.cudnn.benchmark = True
-        curr_device = torch.cuda.current_device()
-    print(f'=> Using device: "{device}{": " + str(curr_device) if use_cuda else ""}"')
+    device = torch.device("cuda" + f':{cuda}' if use_cuda else "cpu")
+    print(f'=> Using device: "{device}"')
     if use_cuda:
+        curr_device = torch.cuda.current_device()
         print(f'[{torch.cuda.device(curr_device)}] name: "{torch.cuda.get_device_name(curr_device)}"')
 
     # Model
@@ -303,9 +308,10 @@ def main(args):
     save_freq = trainer['save_freq']
 
     # Setup for Tensorboard SummaryWriter
-    writer = SummaryWriter(log_dir=log_path)
-    if not hasattr(writer, 'step'):
-        writer.step = writer_step
+    if store_all:
+        writer = SummaryWriter(log_dir=log_path)
+        if not hasattr(writer, 'step'):
+            writer.step = writer_step
 
     for epoch in range(start_epoch, nr_epochs):
         print(f'Epoch:[{epoch+1}/{nr_epochs}]')
@@ -319,36 +325,37 @@ def main(args):
         best_loss = min(val_loss, best_loss)
         best_acc = max(val_acc, best_acc)
 
-        save_checkpoint({
-            'epoch': epoch + 1,
-            'backbone': arch['_component_'],
-            'state_dict': model.state_dict(),
-            'optimizer': optimizer.state_dict(),
-            'best_loss': best_loss,
-            'current_loss': val_loss,
-            'best_acc': best_acc,
-            'current_acc': val_acc,
-            'writer_step': writer_step,
-        }, is_best=is_best, save_path=save_path)
+        if store_all:
+            save_checkpoint({
+                'epoch': epoch + 1,
+                'backbone': arch['_component_'],
+                'state_dict': model.state_dict(),
+                'optimizer': optimizer.state_dict(),
+                'best_loss': best_loss,
+                'current_loss': val_loss,
+                'best_acc': best_acc,
+                'current_acc': val_acc,
+                'writer_step': writer_step,
+            }, is_best=is_best, save_path=save_path)
 
-        writer.add_scalar(
-            'Loss/train',
-            train_loss, global_step=writer.step
-        )
-        writer.add_scalar(
-            'Acc/train',
-            train_acc, global_step=writer.step
-        )
-        writer.add_scalar(
-            'Loss/validate',
-            val_loss, global_step=writer.step
-        )
-        writer.add_scalar(
-            'Acc/validate',
-            val_acc, global_step=writer.step
-        )
+            writer.add_scalar(
+                'Loss/train',
+                train_loss, global_step=writer.step
+            )
+            writer.add_scalar(
+                'Acc/train',
+                train_acc, global_step=writer.step
+            )
+            writer.add_scalar(
+                'Loss/validate',
+                val_loss, global_step=writer.step
+            )
+            writer.add_scalar(
+                'Acc/validate',
+                val_acc, global_step=writer.step
+            )
 
-        writer.step += 1
+            writer.step += 1
 
         # if (epoch % save_freq) == 0:
         #     # create a logger here
@@ -437,6 +444,9 @@ if __name__ == "__main__":
     args.add_argument('-r', '--resume', 
                     default=None, type=str,
                     help='path to latest checkpoint (default: None)')
+    args.add_argument('-s', '--store',
+                    default=True, action=argparse.BooleanOptionalAction,
+                    help="Turn off if you don't want to store everything (--no-s or --no--store)")
     args.add_argument('-d', '--debug', 
                     default=False, action=argparse.BooleanOptionalAction,
                     help='turn on debuggin mode')  
