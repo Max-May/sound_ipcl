@@ -169,6 +169,18 @@ def resample(waveform: torch.Tensor, sr: int, target_samplerate: int):
     return waveform
 
 
+def sample_label(nr_locations):
+    locations_to_exclude = [34, 57, 80, 103, 126, 149, 172,
+    195, 218, 241, 264, 287, 310, 333, 356, 379, 402, 425, 
+    448, 471, 494, 517, 540, 563, 586, 609, 632, 655, 678,
+    701, 724, 747, 770, 793, 816] # Duplicate locations where elevation == 90°, so remove them because it doesnt make sense to keep them
+    weights = np.ones((nr_locations,))
+    weights[locations_to_exclude] = 0
+    weights = torch.tensor(weights, dtype=torch.float)
+
+    label = torch.multinomial(weights, 1, replacement=True)
+    return label
+
 def __getitem__(sample,
                 hrtf,
                 target_samplerate:int = 48000):
@@ -185,7 +197,8 @@ def __getitem__(sample,
     # print('step 3 ', normalized_audio.shape)
     # Fetch random location and store as label
     nr_locations = locations(hrtf)
-    label = torch.randint(0, nr_locations, (1,))
+    label = sample_label(nr_locations) # New method to generate label, allows for exclusion of locations
+    # label = torch.randint(0, nr_locations, (1,))
     # Get random audio slice
     sliced = slice_audio(normalized_audio, slice_seconds=1.7) # This way you keep 1 second after last cut
     # print('step 4 ', sliced.shape)
