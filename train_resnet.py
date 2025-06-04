@@ -30,18 +30,16 @@ def check_for_nans(tensor, name="tensor"):
         raise ValueError(f"Invalid value detected in {name}")
 
 
-def train(model, dataloader, criterion, scheduler, optimizer, device, writer=None):
+def train(model, dataloader, criterion, scheduler, optimizer, device, steps=None, writer=None):
     model.train()
 
-    train_running_loss = 0.0
+    train_running_loss = 0.
     train_running_acc = 0
     counter = 0
     total_guessed = 0
 
-    time_total = 0
-    time_start = time.time()
-    # nr_nans_batch = 0
-    # nr_nans_files = 0
+    # time_total = 0
+    # time_start = time.time()
 
     for idx, (data, labels) in enumerate(dataloader):
         counter += 1
@@ -53,59 +51,52 @@ def train(model, dataloader, criterion, scheduler, optimizer, device, writer=Non
             data = data.to(device, dtype=torch.float)
             labels = labels.to(device)
 
-            # print(f'[Batch: {idx+1}/{dataloader.nsamples}]')
-            # check_for_nans(data, name=f"inputs in batch {idx+1}")
-            # nans = torch.isnan(data).any().item()
-            # print(f'Input: {data.shape}\nContains nan: {nans}')
-            # if nans:
-            #     nr_nans_batch += 1
-            #     print(data)
-            #     for x in data:
-            #         if torch.isnan(x).any().item():
-            #             nr_nans_files += 1
-
             # Forward pass
             outputs = model(data)
-            # print(f'Output: {outputs.shape}\nContains nan: {torch.isnan(outputs).any().item()}\n{outputs}')
-            # check_for_nans(outputs, name=f"outputs in batch {idx+1}")
+
             # Calculate loss
             loss = criterion(outputs, labels)
-            # check_for_nans(loss, name=f"loss in batch {idx+1}")
             train_running_loss += loss.item()
 
             # Calculate accuracy
             _, preds = torch.max(outputs.data, 1)
-            train_running_acc += (preds == labels).sum().item()
+            accuracy = (preds == labels).sum().item()
+            train_running_acc += accuracy 
 
             loss.backward()
             optimizer.step()
+            if type(scheduler).__name__ == 'OneCycleLR':
+                scheduler.step()
+
+            if writer:
+                writer.add_scalar(
+                    'Loss/train/per_step',
+                    loss.item(), global_step=writer.train_step
+                )
+                writer.add_scalar(
+                    'Acc/train/per_step',
+                    (accuracy/data.shape[0])*100., global_step=writer.train_step
+                )
+
+                writer.train_step += 1
+
+            if steps is not None and counter == steps:
+                break
+
         except Exception as e:
             print(f"Exception in training batch {idx+1}: {e}")
             break
 
-    # print(f"Training:\nAmount of corrupted batches: {nr_nans_batch}\nAmount of corrupted files: {nr_nans_files}")
-    scheduler.step()
+    if type(scheduler).__name__ != 'OneCycleLR':
+        scheduler.step()
     epoch_loss = train_running_loss / counter
     epoch_acc = 100. * (train_running_acc / total_guessed)
-    # epoch_loss = 0
-    # epoch_acc = 0
     return epoch_acc, epoch_loss
 
-        # time_now = time.time()
-
-        # counter += 1
-
-        # avg_time = (time_now - time_start - time_total) / counter
-        # time_total += avg_time 
-
-
-        # total_guessed += data.shape[0]
-        # print(f'[Batch: {idx+1}, ({avg_time:.2f}s/it total:{time_total:.2f}s)]: {total_guessed:04d}', end="\r", flush=True)
-    # return None, None
 
 
 @torch.no_grad()
-def validate(model, dataloader, criterion, device):
+def validate(model, dataloader, criterion, device, writer=None):
     model.eval()
     valid_running_correct = 0
     valid_running_loss = 0
@@ -123,49 +114,38 @@ def validate(model, dataloader, criterion, device):
             data = data.to(device, dtype=torch.float)
             labels = labels.to(device)
             
-            # nans = torch.isnan(data).any().item()
-            # # check_for_nans(data, name=f"inputs in batch {idx+1}")
-            # if nans:
-            #     nr_nans_batch += 1
-            #     print(data)
-            #     for x in data:
-            #         if torch.isnan(x).any().item():
-            #             nr_nans_files += 1
-
-            # continue
             # Forward pass.
             outputs = model(data)
-            # check_for_nans(outputs, name=f"outputs in batch {idx+1}")
+
             # Calculate the loss.
             loss = criterion(outputs, labels)
-            # check_for_nans(loss, name=f"loss in batch {idx+1}")
             valid_running_loss += loss.item()
+
             # Calculate the accuracy.
             _, preds = torch.max(outputs.data, 1)
-            valid_running_correct += (preds == labels).sum().item()
+            accuracy = (preds == labels).sum().item()
+            valid_running_correct += accuracy
+
+            if writer:
+                writer.add_scalar(
+                    'Loss/validate/per_step',
+                    loss.item(), global_step=writer.val_step
+                )
+                writer.add_scalar(
+                    'Acc/validate/per_step',
+                    (accuracy/data.shape[0])*100., global_step=writer.val_step
+                )
+
+                writer.val_step += 1
+
         except Exception as e:
             print(f"Exception in validating batch {idx+1}")
             break
 
-    # print(f"Validation:\nAmount of corrupted batches: {nr_nans_batch}\nAmount of corrupted files: {nr_nans_files}")
     # Loss and accuracy for the complete epoch.
     epoch_loss = valid_running_loss / counter
     epoch_acc = 100. * (valid_running_correct / total_guessed)
-    # epoch_loss = 0
-    # epoch_acc = 0
     return epoch_acc, epoch_loss
-
-    # time_total = 0
-    # time_start = time.time()
-    # for idx, (data, labels) in enumerate(dataloader):
-        # time_now = time.time()
-        # counter += 1
-        # avg_time = (time_now - time_start - time_total) / counter
-        # time_total += avg_time 
-        # total_guessed += data.shape[0]
-        # print(f'[Batch: {idx+1}, ({avg_time:.2f}s/it total:{time_total:.2f}s)]: {total_guessed:04d}', end="\r", flush=True)
-    # return None, None
-
 
 
 def main(args):
@@ -221,14 +201,35 @@ def main(args):
     model = model.to(device)
     # torchsummary.summary(resnet, (3, 128, 128))
 
+    trainer = cfg['trainer']
+    # stepwise = True if trainer['method'] == 'stepwise' else False
+    steps = trainer['steps'] if trainer['steps'] > 0 else None
+    nr_epochs = trainer['epochs']
+    save_freq = trainer['save_freq']
+
+    dataset = cfg['dataset']
+    train_epoch_size = count_pattern_files(dataset['train_split'])
+    val_epoch_size = count_pattern_files(dataset['val_split'])
+
     # Optimizer
     optimizer = cfg['optimizer']
     if optimizer['_component_'].lower() == 'sgd':
         optimizer = optim.SGD(model.parameters(), lr=optimizer['lr'])
+    elif optimizer['_component_'].lower() == 'adamw':
+        optimizer = optim.AdamW(model.parameters(), lr=optimizer['lr'])
 
     scheduler = cfg['scheduler']
     if scheduler['_component_'].lower() == 'multisteplr':
         scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones = [5,10], gamma=.75) # 60 is added in case a higher number of epochs is used
+    elif scheduler['_component_'].lower() == 'onecyclelr':
+        if steps == None:
+            steps = (train_epoch_size*2000)//dataset['batch_size']
+        scheduler = optim.lr_scheduler.OneCycleLR(
+            optimizer, 
+            max_lr=0.01, 
+            epochs=nr_epochs, 
+            steps_per_epoch=steps
+        )
 
     # Loss function.
     criterion = cfg['criterion']
@@ -241,7 +242,10 @@ def main(args):
     current_loss = float(1e9)
     best_acc = 0.
     current_acc = 0.
-    writer_step = 0 # SumaryWriter step in case of resume training
+
+    train_step = 0
+    val_step = 0
+    writer_step = 0 # Global epoch SumaryWriter step in case of resume training
 
     # If resuming, check if file exists and then load everything accordingly
     resume = args.resume
@@ -264,6 +268,8 @@ def main(args):
             val_loss = checkpoint['current_loss']
             best_acc = checkpoint['best_acc']
             val_acc = checkpoint['current_acc']
+            train_step = checkpoint['train_step']
+            val_step = checkpoint['val_step']
             writer_step = checkpoint['writer_step']
 
             log = read_yaml(os.path.join('./logs', experiment, run_id, 'log.yaml'))
@@ -282,7 +288,6 @@ def main(args):
     # train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True)
 
     # New method --> optimized for large tar file directories
-    dataset = cfg['dataset']
     WAS = WebAudioSet(
         base_data_dir = dataset['base_data_dir']+dataset['train_split']+'.tar',
         val_data_dir = dataset['val_data_dir']+dataset['val_split']+'.tar',
@@ -295,30 +300,32 @@ def main(args):
     print(f"=> Validate data path: {dataset['val_data_dir']+dataset['val_split']+'.tar'}")
     WAS.setup('fit')
 
-    train_epoch_size = count_pattern_files(dataset['train_split'])
-    val_epoch_size = count_pattern_files(dataset['val_split'])
+
+    # train_epoch_size = None
+    # val_epoch_size = None
 
     train_loader = WAS.train_wds_loader(epoch_size=train_epoch_size)
     val_loader = WAS.val_wds_loader(epoch_size=val_epoch_size)
 
     # Since we resample the data, the dataloader is infinite and we need to set a limit per epoch
     # This is done inside the WebAudioSet class --> {train/val}_wds_loader()
-    trainer = cfg['trainer']
-    nr_epochs = trainer['epochs']
-    save_freq = trainer['save_freq']
 
     # Setup for Tensorboard SummaryWriter
     if store_all:
         writer = SummaryWriter(log_dir=log_path)
+        if not hasattr(writer, 'train_step'):
+            writer.train_step = train_step
+        if not hasattr(writer, 'val_step'):
+            writer.val_step = val_step
         if not hasattr(writer, 'step'):
             writer.step = writer_step
 
     for epoch in range(start_epoch, nr_epochs):
         print(f'Epoch:[{epoch+1}/{nr_epochs}]')
-        train_acc, train_loss = train(model, train_loader, criterion, scheduler, optimizer, device)
+        train_acc, train_loss = train(model, train_loader, criterion, scheduler, optimizer, device, steps=steps, writer=writer)
         print(f'Training accuracy: {train_acc:.3f} | Loss: {train_loss:.3f}')
 
-        val_acc, val_loss = validate(model, val_loader, criterion, device)
+        val_acc, val_loss = validate(model, val_loader, criterion, device, writer=writer)
         print(f'Validation Accuracy: {val_acc:.3f} | Loss: {val_loss:.3f}\n')
 
         is_best = val_loss < best_loss
@@ -336,35 +343,28 @@ def main(args):
                 'best_acc': best_acc,
                 'current_acc': val_acc,
                 'writer_step': writer_step,
+                'train_step': train_step,
+                'val_step': val_step
             }, is_best=is_best, save_path=save_path)
 
             writer.add_scalar(
-                'Loss/train',
+                'Loss/train/avg',
                 train_loss, global_step=writer.step
             )
             writer.add_scalar(
-                'Acc/train',
+                'Acc/train/avg',
                 train_acc, global_step=writer.step
             )
             writer.add_scalar(
-                'Loss/validate',
+                'Loss/validate/avg',
                 val_loss, global_step=writer.step
             )
             writer.add_scalar(
-                'Acc/validate',
+                'Acc/validate/avg',
                 val_acc, global_step=writer.step
             )
 
             writer.step += 1
-
-        # if (epoch % save_freq) == 0:
-        #     # create a logger here
-        #     log = logger(log, epoch, 
-        #         {'train_acc': train_acc, 
-        #         'train_loss': train_loss, 
-        #         'val_acc': val_acc, 
-        #         'val_loss': val_loss},
-        #         log_path=log_path)
 
     print(f'Done training!')
 

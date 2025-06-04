@@ -81,7 +81,7 @@ class WebAudioSet(Dataset):
                 .batched(self.batch_size))
         return dataset
     
-    def train_wds_loader(self, epoch_size: int, nr_workers: int = 16, batch_size: int = None):
+    def train_wds_loader(self, epoch_size: int = None, nr_workers: int = 16, batch_size: int = None):
         if batch_size:
             sub_batch_size = batch_size
         else:
@@ -96,10 +96,11 @@ class WebAudioSet(Dataset):
             )
         # Unbatch, shuffle between workers, then rebatch.
         loader = loader.unbatched().shuffle(1000).batched(sub_batch_size)
-        loader = loader.with_epoch(epoch_size * 2000 // sub_batch_size)
+        if epoch_size:
+            loader = loader.with_epoch(epoch_size * 2000 // sub_batch_size)
         return loader
 
-    def val_wds_loader(self, epoch_size: int, nr_workers: int = 16, batch_size: int = None):
+    def val_wds_loader(self, epoch_size: int = None, nr_workers: int = 16, batch_size: int = None):
         if batch_size:
             sub_batch_size = batch_size
         else:
@@ -116,7 +117,8 @@ class WebAudioSet(Dataset):
         
         # Unbatch, shuffle between workers, then rebatch.
         loader = loader.unbatched().shuffle(1000).batched(sub_batch_size)
-        loader = loader.with_epoch(epoch_size * 2000 // sub_batch_size)
+        if epoch_size:
+            loader = loader.with_epoch(epoch_size * 2000 // sub_batch_size)
         return loader
 
 
