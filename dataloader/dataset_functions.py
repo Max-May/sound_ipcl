@@ -7,8 +7,20 @@ from torchaudio.functional import fftconvolve
 import numpy as np
 import sofa
 import tarfile as tf
+import sofa
 
 from .Generate_Cochleagram import generate_cochleagram
+
+
+def open_sofa(fn: str = None):
+    # Open .sofa file
+    if os.path.isfile(fn):
+        file_path = fn
+    else:
+        file_path = os.path.join(HOME_DIR, WORK_DIR, 'utils', 'KEMAR_Knowl_EarSim_SmallEars_FreeFieldComp_48kHz.sofa')
+    
+    hrtf = sofa.Database.open(file_path)
+    return hrtf
 
 
 def change_name(fn: str) -> str:
@@ -46,10 +58,6 @@ def locations(hrtf):
 
 
 def get_localization(hrtf, measurement: int):
-        # Get the sampling rate for specific measurement
-    sampling_rate = hrtf.Data.SamplingRate.get_values(indices={"M":measurement})
-    # t = np.arange(0,hrtf.Dimensions.N)*sampling_rate
-
     # Get the amount of receivers
     r = hrtf.Dimensions.R
 
@@ -169,7 +177,7 @@ def resample(waveform: torch.Tensor, sr: int, target_samplerate: int):
     return waveform
 
 
-def sample_label(nr_locations):
+def sample_label(nr_locations, sample_size:int=1, replacement=True):
     locations_to_exclude = [34, 57, 80, 103, 126, 149, 172,
     195, 218, 241, 264, 287, 310, 333, 356, 379, 402, 425, 
     448, 471, 494, 517, 540, 563, 586, 609, 632, 655, 678,
@@ -178,12 +186,13 @@ def sample_label(nr_locations):
     weights[locations_to_exclude] = 0
     weights = torch.tensor(weights, dtype=torch.float)
 
-    label = torch.multinomial(weights, 1, replacement=True)
+    label = torch.multinomial(weights, sample_size, replacement=replacement)
     return label
 
 def __getitem__(sample,
                 hrtf,
-                target_samplerate:int = 48000):
+                target_samplerate:int = 48000,
+                ipcl=False):
     if isinstance(sample, dict):
         audio,sr = sample[".flac"]
     else:
@@ -194,13 +203,14 @@ def __getitem__(sample,
     # print('step 2 ', audio.shape)
     # Normalize audio using Root Mean Square normalization (this normalizes wave energy)
     normalized_audio = rms_normalize(audio, target=0.12) # Target is based 
+    # Get random audio slice
+    sliced = slice_audio(normalized_audio, slice_seconds=1.7) # This way you keep 1 second after last cut
+    if ipcl:
+        return sliced, None
     # print('step 3 ', normalized_audio.shape)
     # Fetch random location and store as label
     nr_locations = locations(hrtf)
     label = sample_label(nr_locations) # New method to generate label, allows for exclusion of locations
-    # label = torch.randint(0, nr_locations, (1,))
-    # Get random audio slice
-    sliced = slice_audio(normalized_audio, slice_seconds=1.7) # This way you keep 1 second after last cut
     # print('step 4 ', sliced.shape)
     # Convolve with location HRTF
     localization = get_localization(hrtf, label)
@@ -212,6 +222,29 @@ def __getitem__(sample,
     cochleagram = torch.from_numpy(generate_cochleagram(transformed, target_samplerate))
     # print('step 6 ', cochleagram.shape)
     return cochleagram, label
+
+
+def augment(audio, n_samples:int=5, hrtf:str=None, target_samplerate:int=48000):
+    locations = sample_label(nr_locations=828, sample_size=(audio.shape[0]//n_samples), replacement=False)
+    hrtf = open_sofa(hrtf)
+    cochleagram = []
+    for idx, split in enumerate(torch.split(audio, n_samples)):
+        if split.shape[0] != n_samples:
+            continue
+        location = locations[idx]
+        # Convolve with location HRTF
+        localization = get_localization(hrtf, location)
+
+        for audio in split:
+            # Add ramping -- currently inside transform
+            # And cut first and last 35 ms from audio, due to artifacts
+            transformed = transform(audio, localization, n=0.35, target_samplerate=target_samplerate) # cut first and last 350ms from audio
+            # print('step 5 ', transformed.shape)
+            # Calculate the cochleagram
+            cochleagram.append(torch.from_numpy(generate_cochleagram(transformed, target_samplerate)))
+
+    cochleagram = torch.stack(cochleagram)
+    return cochleagram, locations.repeat_interleave(n_samples)
 
 
 def tmp_slice_debug(audio, sr, time=1):
