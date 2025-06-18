@@ -79,9 +79,15 @@ class WebAudioSet(Dataset):
         #     pre_process_function = partial(__getitem_ipcl__,
         #                                     target_samplerate=self.target_samplerate)
         # else:
+        removed = [34, 57, 80, 103, 126, 149, 172, 195, 218, 241, 264, 287, 310, 333, 356, 379, 402, 425, 
+        448, 471, 494, 517, 540, 563, 586, 609, 632, 655, 678, 701, 724, 747, 770, 793, 816]
+        kept_indices = [i for i in range(828) if i not in removed]
+        old_to_new = {old: new for new, old in enumerate(kept_indices)}
+
         pre_process_function = partial(__getitem__,
                                         hrtf=self.hrtf,
                                         target_samplerate=self.target_samplerate,
+                                        remap=old_to_new,
                                         ipcl=self.ipcl)
 
         # For IterableDataset objects, the batching needs to happen in the dataset.
@@ -141,7 +147,8 @@ def main_old():
     print('Creating dataset...')
     pre_process_function = partial(__getitem__,
                                     hrtf=hrtf,
-                                    target_samplerate=48000)
+                                    target_samplerate=48000,
+                                    )
 
     # For IterableDataset objects, the batching needs to happen in the dataset.
     dataset = (wds.WebDataset(shared_url, resampled=True, cache_dir='/tmp', shardshuffle=True)

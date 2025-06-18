@@ -177,7 +177,7 @@ def resample(waveform: torch.Tensor, sr: int, target_samplerate: int):
     return waveform
 
 
-def sample_label(nr_locations, sample_size:int=1, replacement=True):
+def sample_label(nr_locations, sample_size:int=1, remap:dict=None, replacement=True):
     locations_to_exclude = [34, 57, 80, 103, 126, 149, 172,
     195, 218, 241, 264, 287, 310, 333, 356, 379, 402, 425, 
     448, 471, 494, 517, 540, 563, 586, 609, 632, 655, 678,
@@ -186,12 +186,18 @@ def sample_label(nr_locations, sample_size:int=1, replacement=True):
     weights[locations_to_exclude] = 0
     weights = torch.tensor(weights, dtype=torch.float)
 
-    label = torch.multinomial(weights, sample_size, replacement=replacement)
-    return label
+    location = torch.multinomial(weights, sample_size, replacement=replacement)
+    if remap:
+        label = [remap[i.item()] for i in location if type(i)==torch.Tensor]
+        return location, torch.tensor(label)
+    else:
+        return location
+
 
 def __getitem__(sample,
                 hrtf,
                 target_samplerate:int = 48000,
+                remap:dict=None,
                 ipcl=False):
     if isinstance(sample, dict):
         audio,sr = sample[".flac"]
@@ -210,10 +216,10 @@ def __getitem__(sample,
     # print('step 3 ', normalized_audio.shape)
     # Fetch random location and store as label
     nr_locations = locations(hrtf)
-    label = sample_label(nr_locations) # New method to generate label, allows for exclusion of locations
+    location, label = sample_label(nr_locations, remap=remap) # New method to generate label, allows for exclusion of locations
     # print('step 4 ', sliced.shape)
     # Convolve with location HRTF
-    localization = get_localization(hrtf, label)
+    localization = get_localization(hrtf, location)
     # Add ramping -- currently inside transform
     # And cut first and last 35 ms from audio, due to artifacts
     transformed = transform(sliced, localization, n=0.35, target_samplerate=target_samplerate) # cut first and last 350ms from audio
@@ -224,27 +230,33 @@ def __getitem__(sample,
     return cochleagram, label
 
 
-def augment(audio, n_samples:int=5, hrtf:str=None, target_samplerate:int=48000):
-    locations = sample_label(nr_locations=828, sample_size=(audio.shape[0]//n_samples), replacement=False)
-    hrtf = open_sofa(hrtf)
-    cochleagram = []
-    for idx, split in enumerate(torch.split(audio, n_samples)):
-        if split.shape[0] != n_samples:
-            continue
-        location = locations[idx]
-        # Convolve with location HRTF
-        localization = get_localization(hrtf, location)
+class Transform():
+    def __init__(self, n_samples:int, hrtf:str, target_samplerate:int=48000):
+        self.n_samples = n_samples
+        self.hrtf = open_sofa(hrtf)
+        self.target_samplerate = target_samplerate
+        self.nr_locations = 828
 
-        for audio in split:
-            # Add ramping -- currently inside transform
-            # And cut first and last 35 ms from audio, due to artifacts
-            transformed = transform(audio, localization, n=0.35, target_samplerate=target_samplerate) # cut first and last 350ms from audio
-            # print('step 5 ', transformed.shape)
-            # Calculate the cochleagram
-            cochleagram.append(torch.from_numpy(generate_cochleagram(transformed, target_samplerate)))
+    def __call__(self, X):
+        locations = sample_label(nr_locations=self.nr_locations, sample_size=(X.shape[0]//self.n_samples), replacement=False)
+        cochleagram = []
+        for idx, split in enumerate(torch.split(X, self.n_samples)):
+            if split.shape[0] != self.n_samples:
+                continue
+            location = locations[idx]
+            # Convolve with location HRTF
+            localization = get_localization(self.hrtf, location)
 
-    cochleagram = torch.stack(cochleagram)
-    return cochleagram, locations.repeat_interleave(n_samples)
+            for audio in split:
+                # Add ramping -- currently inside transform
+                # And cut first and last 35 ms from audio, due to artifacts
+                transformed = transform(audio, localization, n=0.35, target_samplerate=self.target_samplerate) # cut first and last 350ms from audio
+                # print('step 5 ', transformed.shape)
+                # Calculate the cochleagram
+                cochleagram.append(torch.from_numpy(generate_cochleagram(transformed, self.target_samplerate)))
+
+        cochleagram = torch.stack(cochleagram)
+        return cochleagram, locations.repeat_interleave(self.n_samples)
 
 
 def tmp_slice_debug(audio, sr, time=1):
