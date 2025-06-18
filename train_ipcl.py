@@ -186,7 +186,7 @@ def main(args):
 
     trainer = cfg['trainer']
     # stepwise = True if trainer['method'] == 'stepwise' else False
-    steps = trainer['steps'] if ('steps' in trainer and trainer['steps'] > 0) else None
+    steps = trainer['steps']
     nr_epochs = trainer['epochs']
     save_freq = trainer['save_freq']
 
@@ -203,13 +203,13 @@ def main(args):
     if scheduler == 'multisteplr':
         epoch_scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones = [5,10], gamma=.75)
     elif scheduler == 'onecyclelr':
-        if steps == None:
-            steps = (train_epoch_size*2000)//dataset['batch_size']
+        if steps == 0:
+            steps_per_epoch = (train_epoch_size*2000)//dataset['batch_size']
         batch_scheduler = optim.lr_scheduler.OneCycleLR(
             optimizer, 
             max_lr=0.01, 
             epochs=nr_epochs, 
-            steps_per_epoch=steps
+            steps_per_epoch=steps_per_epoch
         )
 
     # Augmentation
