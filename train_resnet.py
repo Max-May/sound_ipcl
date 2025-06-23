@@ -220,7 +220,7 @@ def main(args):
 
     scheduler = cfg['scheduler']
     if scheduler['_component_'].lower() == 'multisteplr':
-        scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones = [5,10], gamma=.75) # 60 is added in case a higher number of epochs is used
+        scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones = [3,6], gamma=.5) # Based on prelim investigation
     elif scheduler['_component_'].lower() == 'onecyclelr':
         if steps == None:
             steps = (train_epoch_size*2000)//dataset['batch_size']
@@ -230,7 +230,8 @@ def main(args):
             epochs=nr_epochs, 
             steps_per_epoch=steps
         )
-
+    print(f'=> Using "{type(scheduler).__name__}" as scheduler')
+    
     # Loss function.
     criterion = cfg['criterion']
     if criterion['_component_'].lower() == 'crossentropyloss':
@@ -264,6 +265,7 @@ def main(args):
             start_epoch = checkpoint['epoch']
             model.load_state_dict(checkpoint['state_dict'])
             optimizer.load_state_dict(checkpoint['optimizer'])
+            scheduler.load_state_dict(checkpoint['scheduler'])
             best_loss = checkpoint['best_loss']
             val_loss = checkpoint['current_loss']
             best_acc = checkpoint['best_acc']
@@ -341,6 +343,7 @@ def main(args):
                 'backbone': arch['_component_'],
                 'state_dict': model.state_dict(),
                 'optimizer': optimizer.state_dict(),
+                'scheduler': scheduler.state_dict(),
                 'best_loss': best_loss,
                 'current_loss': val_loss,
                 'best_acc': best_acc,
