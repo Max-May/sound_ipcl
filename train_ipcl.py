@@ -1,6 +1,8 @@
 import os
+import shutil
 import time
 from datetime import datetime
+from pathlib import Path
 
 import numpy as np
 import torch
@@ -154,6 +156,7 @@ def main(args):
     # Dataset and loader
     dataset = cfg['dataset']
     hrtf = dataset['sofa_dir']
+    batch_size = dataset['batch_size']
     train_epoch_size = count_pattern_files(dataset['train_split'])
     val_epoch_size = count_pattern_files(dataset['val_split'])
 
@@ -162,7 +165,7 @@ def main(args):
         val_data_dir = dataset['val_data_dir']+dataset['val_split']+'.tar',
         hrtf_dir = hrtf,
         target_samplerate = dataset['sample_rate'],
-        batch_size = dataset['batch_size'],  # This way you get [batch_size x n_samples] (128*5)
+        batch_size = batch_size,  # This way you get [batch_size x n_samples] (128*5)
         resample= dataset['resample'],
         ipcl=True
     )
@@ -201,16 +204,18 @@ def main(args):
     epoch_scheduler, batch_scheduler, tau_scheduler = None, None, None 
     scheduler = cfg['scheduler']['_component_'].lower()
     if scheduler == 'multisteplr':
-        epoch_scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones = [5,10], gamma=.75)
+        epoch_scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones = [5,10], gamma=.5)
     elif scheduler == 'onecyclelr':
         if steps == 0:
-            steps_per_epoch = (train_epoch_size*2000)//dataset['batch_size']
+            steps_per_epoch = (train_epoch_size*2000)//batch_size
         batch_scheduler = optim.lr_scheduler.OneCycleLR(
             optimizer, 
             max_lr=0.01, 
             epochs=nr_epochs, 
             steps_per_epoch=steps_per_epoch
         )
+
+    print(f'=> Using "{type(epoch_scheduler).__name__ if epoch_scheduler is not None else type(batch_scheduler).__name__}" as scheduler')
 
     # Augmentation
     transform = Transform(n_samples=n_samples, hrtf=hrtf, target_samplerate=48000)
@@ -221,6 +226,7 @@ def main(args):
     best_top1 = 0.
     train_step = 0
     writer_step = 0 # Global epoch SumaryWriter step in case of resume training
+    embeddings = {}
 
     # If resuming, check if file exists and then load everything accordingly
     resume = args.resume
@@ -228,6 +234,7 @@ def main(args):
         assert len(resume.split(',')) == 3, "resume must in form: 'experiment,runID,suffix'"
         experiment,run_id,suffix = resume.split(',')
         ckpt = f'./results/{experiment}/{run_id}/checkpoint_{suffix}.pth'
+        ckpt_embeddings = f'./results/embeddings/{experiment}/{run_id}/embeddings.pth'
         if not os.path.exists(ckpt):
             experiment = cfg['name']
             run_id = datetime.now().strftime('%Y%m%d_%H%M%S')
@@ -239,10 +246,16 @@ def main(args):
             start_epoch = checkpoint['epoch']
             learner.load_state_dict(checkpoint['state_dict'])
             optimizer.load_state_dict(checkpoint['optimizer'])
+            epoch_scheduler.load_state_dict(checkpoint['epoch_scheduler'])
+            batch_scheduler.load_state_dict(checkpoint['batch_scheduler'])
             best_loss = checkpoint['best_loss']
             best_top1 = checkpoint['best_top1']
             train_step = checkpoint['train_step']
             writer_step = checkpoint['writer_step']
+
+            if os.path.exists(ckpt_embeddings):
+                embeddings = torch.load(ckpt_embeddings)
+
 
     # Setting up the save locations
     log_dir = cfg['log_dir']
@@ -278,6 +291,11 @@ def main(args):
         best_loss = min(train_loss, best_loss)
         best_top1 = max(top1, best_top1)
 
+        if args.embeddings:
+            embeddings[f'{epoch}'] = [trainX, trainY]
+            save_checkpoint(embeddings, is_best=False, save_path=os.path.join('./results/embeddings', experiment, run_id), fn='embeddings.pth')
+            print(f'=> Saved embeddings to "{os.path.join("./results/embeddings", experiment, run_id, "embeddings.pth")}"')
+    
         # Save
         if store_all:
             save_checkpoint({
@@ -310,6 +328,14 @@ def main(args):
     print(f'Done training!')
 
 
+def save_checkpoint(state: dict, is_best: bool, save_path: str, fn: str='checkpoint_last.pth'):
+    # Check if directory exists, else create all parent dirs
+    Path(save_path).mkdir(parents=True, exist_ok=True) # results/sound_ipcl_base/runID/
+    fn = os.path.join(save_path, fn)
+    torch.save(state, fn)
+    if is_best:
+        fn_best = fn.replace('last', 'best')
+        shutil.copyfile(fn, fn_best)
 
 
 if __name__ == '__main__':
@@ -326,5 +352,8 @@ if __name__ == '__main__':
     args.add_argument('-d', '--debug', 
                     default=False, action=argparse.BooleanOptionalAction,
                     help='turn on debuggin mode')  
+    args.add_argument('-e', '--embeddings',
+                    default=False, action=argparse.BooleanOptionalAction,
+                    help="Turn on if you want to store the embeddings")
     args = args.parse_args()
     main(args)
