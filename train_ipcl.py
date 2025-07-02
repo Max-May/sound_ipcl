@@ -190,6 +190,11 @@ def main(args):
     trainer = cfg['trainer']
     # stepwise = True if trainer['method'] == 'stepwise' else False
     steps = trainer['steps']
+    if steps == 0:
+        steps = None
+    else:
+        print(f'=> Using {steps} steps per loop')
+
     nr_epochs = trainer['epochs']
     save_freq = trainer['save_freq']
 
@@ -206,7 +211,7 @@ def main(args):
     if scheduler == 'multisteplr':
         epoch_scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones = [5,10], gamma=.5)
     elif scheduler == 'onecyclelr':
-        if steps == 0:
+        if steps is None:
             steps_per_epoch = (train_epoch_size*2000)//batch_size
         batch_scheduler = optim.lr_scheduler.OneCycleLR(
             optimizer, 
@@ -227,6 +232,7 @@ def main(args):
     train_step = 0
     writer_step = 0 # Global epoch SumaryWriter step in case of resume training
     embeddings = {}
+    writer = None
 
     # If resuming, check if file exists and then load everything accordingly
     resume = args.resume
@@ -246,15 +252,21 @@ def main(args):
             start_epoch = checkpoint['epoch']
             learner.load_state_dict(checkpoint['state_dict'])
             optimizer.load_state_dict(checkpoint['optimizer'])
-            epoch_scheduler.load_state_dict(checkpoint['epoch_scheduler'])
-            batch_scheduler.load_state_dict(checkpoint['batch_scheduler'])
+            if epoch_scheduler is not None:
+                epoch_scheduler.load_state_dict(checkpoint['epoch_scheduler'])
+            if batch_scheduler is not None:
+                batch_scheduler.load_state_dict(checkpoint['batch_scheduler'])
             best_loss = checkpoint['best_loss']
             best_top1 = checkpoint['best_top1']
             train_step = checkpoint['train_step']
             writer_step = checkpoint['writer_step']
+            # writer = checkpoint['writer']
 
             if os.path.exists(ckpt_embeddings):
+                print(f'=> Fetching embeddings found at {ckpt_embeddings}')
                 embeddings = torch.load(ckpt_embeddings)
+            else:
+                print(f'=> No saved embeddings found at {ckpt_embeddings}')
 
 
     # Setting up the save locations
@@ -264,8 +276,7 @@ def main(args):
     save_path = os.path.join(save_dir, experiment, run_id)
 
     # Setup for Tensorboard SummaryWriter
-    writer = None
-    if store_all:
+    if store_all and writer is None:
         writer = SummaryWriter(log_dir=log_path)
         if not hasattr(writer, 'train_step'):
             writer.train_step = train_step
@@ -281,6 +292,7 @@ def main(args):
         # Validation with k-nearest neighbour
         top1, top5 = knn_monitor(
             learner.base_encoder, trainX, trainY, val_loader, sigma=learner.T, 
+            K=200, num_chunks=200,
             n_samples=n_samples, hrtf=hrtf, device=device
         )
 
@@ -298,18 +310,6 @@ def main(args):
     
         # Save
         if store_all:
-            save_checkpoint({
-                'epoch': epoch + 1,
-                'state_dict': learner.state_dict(),
-                'optimizer': optimizer.state_dict(),
-                'epoch_scheduler': epoch_scheduler.state_dict() if hasattr(epoch_scheduler, 'state_dict') else None,
-                'batch_scheduler': batch_scheduler.state_dict() if hasattr(batch_scheduler, 'state_dict') else None,
-                'best_top1': best_top1,
-                'best_loss': best_loss,
-                'writer_step': writer_step,
-                'train_step': train_step,
-            }, is_best=is_best, save_path=save_path)
-
             writer.add_scalar(
                 'Loss/train/avg',
                 train_loss, global_step=writer.step
@@ -324,6 +324,19 @@ def main(args):
             )
 
             writer.step += 1
+
+            save_checkpoint({
+                'epoch': epoch + 1,
+                'state_dict': learner.state_dict(),
+                'optimizer': optimizer.state_dict(),
+                'epoch_scheduler': epoch_scheduler.state_dict() if hasattr(epoch_scheduler, 'state_dict') else None,
+                'batch_scheduler': batch_scheduler.state_dict() if hasattr(batch_scheduler, 'state_dict') else None,
+                'best_top1': best_top1,
+                'best_loss': best_loss,
+                'writer_step': writer.step,
+                'train_step': writer.train_step,
+                # 'writer': writer
+            }, is_best=is_best, save_path=save_path)
 
     print(f'Done training!')
 
