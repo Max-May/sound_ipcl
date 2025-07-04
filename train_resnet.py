@@ -30,7 +30,7 @@ def check_for_nans(tensor, name="tensor"):
         raise ValueError(f"Invalid value detected in {name}")
 
 
-def train(model, dataloader, criterion, scheduler, optimizer, device, steps=None, writer=None):
+def train(model, dataloader, criterion, scheduler, optimizer, device, remap=None, steps=None, writer=None):
     model.train()
 
     train_running_loss = 0.
@@ -96,7 +96,7 @@ def train(model, dataloader, criterion, scheduler, optimizer, device, steps=None
 
 
 @torch.no_grad()
-def validate(model, dataloader, criterion, device, writer=None):
+def validate(model, dataloader, criterion, device, remap=None, writer=None):
     model.eval()
     valid_running_correct = 0
     valid_running_loss = 0
@@ -203,7 +203,7 @@ def main(args):
 
     trainer = cfg['trainer']
     # stepwise = True if trainer['method'] == 'stepwise' else False
-    steps = trainer['steps'] if trainer['steps'] > 0 else None
+    steps = trainer['steps'] if ('steps' in trainer and trainer['steps'] > 0) else None
     nr_epochs = trainer['epochs']
     save_freq = trainer['save_freq']
 
@@ -220,7 +220,7 @@ def main(args):
 
     scheduler = cfg['scheduler']
     if scheduler['_component_'].lower() == 'multisteplr':
-        scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones = [5,10], gamma=.75) # 60 is added in case a higher number of epochs is used
+        scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones = [3,6], gamma=.5) # Based on prelim investigation
     elif scheduler['_component_'].lower() == 'onecyclelr':
         if steps == None:
             steps = (train_epoch_size*2000)//dataset['batch_size']
@@ -230,7 +230,8 @@ def main(args):
             epochs=nr_epochs, 
             steps_per_epoch=steps
         )
-
+    print(f'=> Using "{type(scheduler).__name__}" as scheduler')
+    
     # Loss function.
     criterion = cfg['criterion']
     if criterion['_component_'].lower() == 'crossentropyloss':
@@ -264,6 +265,7 @@ def main(args):
             start_epoch = checkpoint['epoch']
             model.load_state_dict(checkpoint['state_dict'])
             optimizer.load_state_dict(checkpoint['optimizer'])
+            scheduler.load_state_dict(checkpoint['scheduler'])
             best_loss = checkpoint['best_loss']
             val_loss = checkpoint['current_loss']
             best_acc = checkpoint['best_acc']
@@ -272,7 +274,7 @@ def main(args):
             val_step = checkpoint['val_step']
             writer_step = checkpoint['writer_step']
 
-            log = read_yaml(os.path.join('./logs', experiment, run_id, 'log.yaml'))
+            # log = read_yaml(os.path.join('./logs', experiment, run_id, 'log.yaml'))
         
     # Setting up the save locations
     log_dir = cfg['log_dir']
@@ -280,12 +282,14 @@ def main(args):
     save_dir = cfg['save_dir']
     save_path = os.path.join(save_dir, experiment, run_id)
 
-    # Old method --> not optimized for .tar files
-    # train_data = AudioDataset(
-    #                 dir='/home/maxmay/files_to_copy.txt', 
-    #                 target_samplerate = 48000
-    #             )
-    # train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True)
+    # Labels to exclude, see documentation
+    # removed = [34, 57, 80, 103, 126, 149, 172, 195, 218, 241, 264, 287, 310, 333, 356, 379, 402, 425, 
+    # 448, 471, 494, 517, 540, 563, 586, 609, 632, 655, 678, 701, 724, 747, 770, 793, 816]
+    # if removed:
+    #     kept = [i for i in range(828) if i not in removed]
+    #     remap = torch.tensor(kept, dtype=torch.int).to(device)
+    # else:
+    remap = None
 
     # New method --> optimized for large tar file directories
     WAS = WebAudioSet(
@@ -294,12 +298,12 @@ def main(args):
         hrtf_dir = dataset['sofa_dir'],
         target_samplerate = dataset['sample_rate'],
         batch_size = dataset['batch_size'],
-        resample= dataset['resample']
+        resample= dataset['resample'],
+        debug=debug
     )
     print(f"=> Train data path: {dataset['base_data_dir']+dataset['train_split']+'.tar'}")
     print(f"=> Validate data path: {dataset['val_data_dir']+dataset['val_split']+'.tar'}")
     WAS.setup('fit')
-
 
     # train_epoch_size = None
     # val_epoch_size = None
@@ -311,6 +315,7 @@ def main(args):
     # This is done inside the WebAudioSet class --> {train/val}_wds_loader()
 
     # Setup for Tensorboard SummaryWriter
+    writer = None
     if store_all:
         writer = SummaryWriter(log_dir=log_path)
         if not hasattr(writer, 'train_step'):
@@ -322,10 +327,10 @@ def main(args):
 
     for epoch in range(start_epoch, nr_epochs):
         print(f'Epoch:[{epoch+1}/{nr_epochs}]')
-        train_acc, train_loss = train(model, train_loader, criterion, scheduler, optimizer, device, steps=steps, writer=writer)
+        train_acc, train_loss = train(model, train_loader, criterion, scheduler, optimizer, device, remap=remap, steps=steps, writer=writer)
         print(f'Training accuracy: {train_acc:.3f} | Loss: {train_loss:.3f}')
 
-        val_acc, val_loss = validate(model, val_loader, criterion, device, writer=writer)
+        val_acc, val_loss = validate(model, val_loader, criterion, device, remap=remap, writer=writer)
         print(f'Validation Accuracy: {val_acc:.3f} | Loss: {val_loss:.3f}\n')
 
         is_best = val_loss < best_loss
@@ -338,6 +343,7 @@ def main(args):
                 'backbone': arch['_component_'],
                 'state_dict': model.state_dict(),
                 'optimizer': optimizer.state_dict(),
+                'scheduler': scheduler.state_dict(),
                 'best_loss': best_loss,
                 'current_loss': val_loss,
                 'best_acc': best_acc,

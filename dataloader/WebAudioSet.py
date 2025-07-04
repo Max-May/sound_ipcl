@@ -18,7 +18,7 @@ os.environ["GOPEN_VERBOSE"] = "0"
 import sofa
 from tqdm import tqdm
 
-from .dataset_functions import __getitem__, __getitem_debug__ #, __len__, __size__
+from .dataset_functions import __getitem__, open_sofa, __getitem_debug__ #, __len__, __size__
 from functools import partial
 
 
@@ -38,6 +38,11 @@ def collate_fn(batch):
     return x, y.flatten(start_dim=0, end_dim = 1)
 
 
+def ipcl_collate_fn(batch):
+    x = batch
+    return x
+
+
 class WebAudioSet(Dataset):
     def __init__(self, 
                 base_data_dir: str,
@@ -46,6 +51,7 @@ class WebAudioSet(Dataset):
                 target_samplerate: int = 48000,
                 batch_size: int = 32,
                 resample: bool = True,
+                ipcl: bool = False,
                 debug=False
                 ):
         super().__init__()
@@ -55,6 +61,7 @@ class WebAudioSet(Dataset):
         self.target_samplerate = target_samplerate
         self.batch_size = batch_size
         self.resample = resample
+        self.ipcl = ipcl
         self.debug = debug
     
     
@@ -68,9 +75,20 @@ class WebAudioSet(Dataset):
     def make_web_dataset(self, path, shuffle):
         warning = wds.reraise_exception if self.debug else wds.warn_and_continue
         # warning = wds.reraise_exception
+        # if self.ipcl:
+        #     pre_process_function = partial(__getitem_ipcl__,
+        #                                     target_samplerate=self.target_samplerate)
+        # else:
+        removed = [34, 57, 80, 103, 126, 149, 172, 195, 218, 241, 264, 287, 310, 333, 356, 379, 402, 425, 
+        448, 471, 494, 517, 540, 563, 586, 609, 632, 655, 678, 701, 724, 747, 770, 793, 816]
+        kept_indices = [i for i in range(828) if i not in removed]
+        old_to_new = {old: new for new, old in enumerate(kept_indices)}
+
         pre_process_function = partial(__getitem__,
                                         hrtf=self.hrtf,
-                                        target_samplerate=self.target_samplerate)
+                                        target_samplerate=self.target_samplerate,
+                                        remap=old_to_new,
+                                        ipcl=self.ipcl)
 
         # For IterableDataset objects, the batching needs to happen in the dataset.
         dataset = (wds.WebDataset(path, resampled=self.resample, cache_dir='/tmp', shardshuffle=True)
@@ -92,7 +110,7 @@ class WebAudioSet(Dataset):
             self.train_dataset, 
             batch_size=None, 
             num_workers=nr_workers, 
-            collate_fn=collate_fn
+            collate_fn=ipcl_collate_fn if self.ipcl else collate_fn
             )
         # Unbatch, shuffle between workers, then rebatch.
         loader = loader.unbatched().shuffle(1000).batched(sub_batch_size)
@@ -112,7 +130,7 @@ class WebAudioSet(Dataset):
             shuffle=False, 
             pin_memory=True,
             num_workers=nr_workers, 
-            collate_fn=collate_fn
+            collate_fn=ipcl_collate_fn if self.ipcl else collate_fn
             )
         
         # Unbatch, shuffle between workers, then rebatch.
@@ -122,17 +140,6 @@ class WebAudioSet(Dataset):
         return loader
 
 
-def open_sofa(fn: str = None):
-    # Open .sofa file
-    if os.path.isfile(fn):
-        file_path = fn
-    else:
-        file_path = os.path.join(HOME_DIR, WORK_DIR, 'utils', 'KEMAR_Knowl_EarSim_SmallEars_FreeFieldComp_48kHz.sofa')
-    
-    hrtf = sofa.Database.open(file_path)
-    return hrtf
-
-
 def main_old():
     shared_url = '/home/maxmay/Data/bal_train{00..01}.tar'
     hrtf = open_sofa()
@@ -140,7 +147,8 @@ def main_old():
     print('Creating dataset...')
     pre_process_function = partial(__getitem__,
                                     hrtf=hrtf,
-                                    target_samplerate=48000)
+                                    target_samplerate=48000,
+                                    )
 
     # For IterableDataset objects, the batching needs to happen in the dataset.
     dataset = (wds.WebDataset(shared_url, resampled=True, cache_dir='/tmp', shardshuffle=True)
