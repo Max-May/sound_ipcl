@@ -315,11 +315,11 @@ def main(args):
     for epoch in range(start_epoch, nr_epochs):
         if args.oneloop:
             print("=> Running for 1 epoch")
-            
+
         # Save embeddings pre-trained for visualization purposes
         if epoch == 0 and args.embeddings:
             print('=> Obtaining embeddings pre-trained')
-            test_embeddings,test_labels = test_ipcl(learner, val_loader, n_samples, transform, device=device)
+            test_embeddings,test_labels = test_ipcl(learner, train_loader, n_samples, transform, device=device)
             embeddings['-1'] = [test_embeddings, test_labels]
             print('=> Saving embeddings pre-trained')
             save_checkpoint(embeddings, is_best=False, save_path=os.path.join('./results/embeddings', experiment, run_id), fn='embeddings.pth')
