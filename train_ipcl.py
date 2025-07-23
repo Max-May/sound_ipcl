@@ -317,13 +317,15 @@ def main(args):
             print("=> Running for 1 epoch")
 
         # Save embeddings pre-trained for visualization purposes
-        if epoch == 0 and args.embeddings:
+        if epoch == 0 and args.embeddings and args.pretrain:
             print('=> Obtaining embeddings pre-trained')
-            test_embeddings,test_labels = test_ipcl(learner, train_loader, n_samples, transform, device=device)
+            test_embeddings,test_labels = test_ipcl(learner, train_loader, n_samples, transform, steps=steps, device=device)
             embeddings['-1'] = [test_embeddings, test_labels]
-            print('=> Saving embeddings pre-trained')
-            save_checkpoint(embeddings, is_best=False, save_path=os.path.join('./results/embeddings', experiment, run_id), fn='embeddings.pth')
-            print(f'=> Saved embeddings to "{os.path.join("./results/embeddings", experiment, run_id, "embeddings.pth")}"')
+            if store_all:
+                print('=> Saving embeddings pre-trained')
+                save_checkpoint(embeddings, is_best=False, save_path=os.path.join('./results/embeddings', experiment, run_id), fn='embeddings.pth')
+                print(f'=> Saved embeddings to "{os.path.join("./results/embeddings", experiment, run_id, "embeddings.pth")}"')
+            break
 
         print(f'Epoch:[{epoch+1}/{nr_epochs}]')
         train_loss, trainX, trainY = train(learner, train_loader, n_samples, transform, batch_scheduler, optimizer, device, steps=steps, writer=writer)
@@ -347,7 +349,7 @@ def main(args):
         best_loss = min(train_loss, best_loss)
         best_top1 = max(top1, best_top1)
 
-        if args.embeddings:
+        if args.embeddings and store_all:
             embeddings[f'{epoch}'] = [trainX, trainY]
             save_checkpoint(embeddings, is_best=False, save_path=os.path.join('./results/embeddings', experiment, run_id), fn='embeddings.pth')
             print(f'=> Saved embeddings to "{os.path.join("./results/embeddings", experiment, run_id, "embeddings.pth")}"')
@@ -421,5 +423,8 @@ if __name__ == '__main__':
     args.add_argument('-o', '--oneloop',
                     default=False, action=argparse.BooleanOptionalAction,
                     help="Turn on if you just want to run 1 epoch")
+    args.add_argument('-p', '--pretrain',
+                    default=False, action=argparse.BooleanOptionalAction,
+                    help="Turn on if you want to obtain embeddings pre-trained")
     args = args.parse_args()
     main(args)
