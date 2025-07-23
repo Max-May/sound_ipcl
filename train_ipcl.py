@@ -103,6 +103,34 @@ def validate(learner, dataloader, device, writer=None):
     return epoch_loss
 
 
+@torch.no_grad()
+def test_ipcl(learner, loader, n_samples, transform, device, steps=None):
+    features, targets = [], []
+    counter = 0
+
+    for idx, (data, _) in enumerate(loader):
+        counter += 1
+
+        # Preprocessing: take 1 location and convolve 'n_samples' audio fragments
+        data, targs = transform(data)
+        data = data.to(device, dtype=torch.float)
+        targs = targs.to(device)
+
+        _, (embeddings, prototypes) = learner(data, targs)
+
+        feat = embeddings.chunk(n_samples)[0].detach().cpu()
+        feat = feat.view(feat.shape[0],-1)
+        features.append(feat)
+        targets.append(targs.chunk(n_samples)[0].cpu())
+
+        if steps is not None and counter == steps:
+            break
+
+    features = torch.cat(features, dim=0)
+    targets = torch.cat(targets, dim=0)
+    return features, targets
+
+
 def main(args):
     debug = args.debug
     store_all = args.store
@@ -285,16 +313,32 @@ def main(args):
 
     # Main training loop
     for epoch in range(start_epoch, nr_epochs):
+        if args.oneloop:
+            print("=> Running for 1 epoch")
+            
+        # Save embeddings pre-trained for visualization purposes
+        if epoch == 0 and args.embeddings:
+            print('=> Obtaining embeddings pre-trained')
+            test_embeddings,test_labels = test_ipcl(learner, val_loader, n_samples, transform, device=device)
+            embeddings['-1'] = [test_embeddings, test_labels]
+            print('=> Saving embeddings pre-trained')
+            save_checkpoint(embeddings, is_best=False, save_path=os.path.join('./results/embeddings', experiment, run_id), fn='embeddings.pth')
+            print(f'=> Saved embeddings to "{os.path.join("./results/embeddings", experiment, run_id, "embeddings.pth")}"')
+
         print(f'Epoch:[{epoch+1}/{nr_epochs}]')
         train_loss, trainX, trainY = train(learner, train_loader, n_samples, transform, batch_scheduler, optimizer, device, steps=steps, writer=writer)
         print(f'Training Loss: {train_loss:.3f}')
         
         # Validation with k-nearest neighbour
-        top1, top5 = knn_monitor(
-            learner.base_encoder, trainX, trainY, val_loader, sigma=learner.T, 
-            K=200, num_chunks=200,
-            n_samples=n_samples, hrtf=hrtf, device=device
-        )
+        if args.knn:
+            top1, top5 = knn_monitor(
+                learner.base_encoder, trainX, trainY, val_loader, sigma=learner.T, 
+                K=200, num_chunks=200,
+                n_samples=n_samples, hrtf=hrtf, device=device
+            )
+        else:
+            top1 = 0
+            top5 = 0
 
         if epoch_scheduler is not None:
             epoch_scheduler.step()
@@ -337,6 +381,9 @@ def main(args):
                 'train_step': writer.train_step,
                 # 'writer': writer
             }, is_best=is_best, save_path=save_path)
+        if args.oneloop:
+            print('=> Done 1 epoch, exiting now...')
+            break
 
     print(f'Done training!')
 
@@ -358,7 +405,7 @@ if __name__ == '__main__':
                     help='config file path (default: None)')
     args.add_argument('-r', '--resume', 
                     default=None, type=str,
-                    help='path to latest checkpoint (default: None)')
+                    help='path to latest checkpoint in form "experiment,runID,suffix" (default: None)')
     args.add_argument('-s', '--store',
                     default=True, action=argparse.BooleanOptionalAction,
                     help="Turn off if you don't want to store everything (--no-s or --no--store)")
@@ -368,5 +415,11 @@ if __name__ == '__main__':
     args.add_argument('-e', '--embeddings',
                     default=False, action=argparse.BooleanOptionalAction,
                     help="Turn on if you want to store the embeddings")
+    args.add_argument('-k', '--knn',
+                    default=False, action=argparse.BooleanOptionalAction,
+                    help="Turn on if you want to validate ipcl using k-Nearest Neighbours")
+    args.add_argument('-o', '--oneloop',
+                    default=False, action=argparse.BooleanOptionalAction,
+                    help="Turn on if you just want to run 1 epoch")
     args = args.parse_args()
     main(args)
