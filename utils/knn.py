@@ -54,8 +54,8 @@ def get_features(model, loader, n_samples, hrtf, device='cpu', dtype=torch.float
         features.append(out.view(out.shape[0],-1).to(device, non_blocking=True))
         labels.append(targets)
 
-        # if counter == 10:
-        #     break
+        if counter == 10:
+            break
 
     features = torch.cat(features)
     labels = torch.cat(labels)

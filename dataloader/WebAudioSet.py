@@ -52,10 +52,12 @@ class WebAudioSet(Dataset):
                 batch_size: int = 32,
                 resample: bool = True,
                 ipcl: bool = False,
+                test_data_dir = None,
                 debug=False
                 ):
         super().__init__()
         self.base_data_dir = base_data_dir
+        self.test_data_dir = test_data_dir
         self.val_data_dir = val_data_dir
         self.hrtf = open_sofa(hrtf_dir)
         self.target_samplerate = target_samplerate
@@ -70,6 +72,10 @@ class WebAudioSet(Dataset):
             self.train_dataset = self.make_web_dataset(self.base_data_dir, shuffle=1000)
             self.val_dataset = self.make_web_dataset(self.val_data_dir, shuffle=0)
         elif stage == 'inf':
+            self.val_dataset = self.make_web_dataset(self.val_data_dir, shuffle=0)
+        elif stage == 'ipcl_train':
+            self.train_dataset = self.make_web_dataset(self.base_data_dir, shuffle=1000)
+            self.test_dataset = self.make_web_dataset(self.base_data_dir, shuffle=1000)
             self.val_dataset = self.make_web_dataset(self.val_data_dir, shuffle=0)
     
     def make_web_dataset(self, path, shuffle):

@@ -18,3 +18,5 @@ slurm_output/*
 
 # Ignore examples folder
 examples/*
+
+test_norm.py
