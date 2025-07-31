@@ -41,15 +41,18 @@ def main(args):
 
     # CUDA for PyTorch
     # use_cuda = torch.cuda.is_available()
-    n_gpus = cfg['n_gpu']
+    gpu = cfg['gpu']
+    n_gpus = gpu['n_gpu']
     use_cuda = True if n_gpus > 0 else False
-    device = torch.device("cuda" if use_cuda else "cpu")
     if use_cuda:
+        cuda = gpu['cuda']
         torch.backends.cudnn.benchmark = True
-        curr_device = torch.cuda.current_device()
-    print(f'=> Using device: "{device}{": " + str(curr_device) if use_cuda else ""}"')
+    device = torch.device("cuda" + f':{cuda}' if use_cuda else "cpu")
+    print(f'=> Using device: "{device}"')
     if use_cuda:
+        curr_device = torch.cuda.current_device()
         print(f'[{torch.cuda.device(curr_device)}] name: "{torch.cuda.get_device_name(curr_device)}"')
+
 
     # Model
     arch = cfg['arch']
@@ -120,8 +123,8 @@ def main(args):
         predictions = torch.stack(predictions).detach().numpy()
         labels_used = torch.stack(labels_used).detach().numpy()
 
-    save_numpy('./results/confusion/20250415/', 'predictions_full.npy', predictions)
-    save_numpy('./results/confusion/20250415/', 'labels_full.npy', labels_used)
+    save_numpy('./results/confusion/20250728/', 'predictions_full.npy', predictions)
+    save_numpy('./results/confusion/20250728/', 'labels_full.npy', labels_used)
 
 
 def save_numpy(save_path, filename, array):
