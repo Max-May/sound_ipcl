@@ -100,9 +100,15 @@ def main(args):
     hrtf = dataset['sofa_dir']
     batch_size = dataset['batch_size']
 
+    # train_epoch_size = count_pattern_files(dataset['train_split'])
+    # test_epoch_size = count_pattern_files(dataset['test_split'])
+    val_epoch_size = count_pattern_files(dataset['test_split'])
+
+    # val_data_dir = dataset['val_data_dir']+dataset['val_split']+'.tar',
     was = WebAudioSet(
         base_data_dir = dataset['base_data_dir']+dataset['train_split']+'.tar',
-        val_data_dir = dataset['val_data_dir']+dataset['val_split']+'.tar',
+        test_data_dir = dataset['base_data_dir']+dataset['test_split']+'.tar',
+        val_data_dir = dataset['base_data_dir']+dataset['test_split']+'.tar',
         hrtf_dir = hrtf,
         target_samplerate = dataset['sample_rate'],
         batch_size = batch_size,  # This way you get [batch_size x n_samples] (128*5)
@@ -110,7 +116,9 @@ def main(args):
         ipcl=True
     )
     was.setup('inf')
-    val_epoch_size = count_pattern_files(dataset['val_split'])
+
+    # train_loader = was.train_wds_loader(epoch_size=train_epoch_size)
+    # test_loader = was.train_wds_loader(epoch_size=test_epoch_size)
     val_loader = was.val_wds_loader(epoch_size=val_epoch_size)
 
     # IPCL Model (called learner in this strategy)
@@ -140,8 +148,8 @@ def main(args):
 
     ouptut['embedding'] = embeddings
     ouptut['labels'] = labels
-    save_checkpoint(ouptut, is_best=False, save_path=os.path.join('./results/embeddings', experiment, run_id), fn='embeddings.pth')
-    print(f'=> Saved embeddings to "{os.path.join("./results/embeddings", experiment, run_id, "embeddings.pth")}"')
+    save_checkpoint(ouptut, is_best=False, save_path=os.path.join('./results/embeddings', experiment, run_id), fn='embeddings_inf.pth')
+    print(f'=> Saved embeddings to "{os.path.join("./results/embeddings", experiment, run_id, "embeddings_inf.pth")}"')
     
     print(f'Done inferencing!')
 
