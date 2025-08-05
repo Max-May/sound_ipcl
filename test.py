@@ -20,8 +20,9 @@ from utils.knn import knn_monitor, get_features
 from utils.util import read_yaml, write_yaml, seed_all, count_pattern_files
 
 
-def train(learner, 
-        dataloader, 
+def train(
+        learner, 
+        dataloader,
         n_samples, 
         transform,
         counter,
@@ -34,15 +35,20 @@ def train(learner,
         optimizer,
         best_top1, 
         device,
+        save_freq=None,
         steps=None, 
         writer=None):
 
     learner.train()
 
     features, targets = [], []
+    total_counter = epoch * len(dataloader) if steps is None else epoch * steps
+    if counter > 0:
+        total_counter += counter
 
     for idx, (data, _) in enumerate(dataloader):
         counter += 1
+        total_counter += 1
         print(f'=> Counter: [{counter}/{steps}]')
 
         # Preprocessing: take 1 location and convolve 'n_samples' audio fragments
@@ -92,6 +98,11 @@ def train(learner,
                     'train_step': writer.train_step,
                 }, is_best=is_best, save_path=save_path
             )
+
+        if total_counter % save_freq == 0:
+            save_checkpoint({
+                'state_dict': learner.state_dict()
+            }, is_best=False, save_path=save_path, fn=f'checkpoint_{total_counter}.pth')
 
         if steps is not None and counter == steps:
             break
@@ -181,27 +192,45 @@ def main(args):
         l2norm=_encoder['l2_norm']
     ).float()
 
+    trainer = cfg['trainer']
+    # stepwise = True if trainer['method'] == 'stepwise' else False
+    steps = trainer['steps']
+    if steps == 0:
+        steps = None
+    else:
+        print(f'=> Using {steps} steps per loop')
+
     # Dataset and loader
     dataset = cfg['dataset']
     hrtf = dataset['sofa_dir']
     batch_size = dataset['batch_size']
-    train_epoch_size = count_pattern_files(dataset['train_split'])
+
+    random_shards = dataset['random']
+    nr_random_shards = None
+    chosen_shards = None
+    if random_shards:
+        nr_random_shards = dataset['nr_random_shards']
+        chosen_shards = np.random.choice(10, nr_random_shards, replace=False)
+        print(f"=> Using {nr_random_shards} random shards: {chosen_shards}")
+    train_epoch_size = nr_random_shards if random_shards else count_pattern_files(dataset['train_split'])
     val_epoch_size = count_pattern_files(dataset['val_split'])
     test_epoch_size = count_pattern_files(dataset['test_split'])
 
     was = WebAudioSet(
-        base_data_dir = dataset['base_data_dir']+dataset['train_split']+'.tar',
+        base_data_dir = dataset['base_data_dir'],
+        train_data_dir = dataset['base_data_dir'] + dataset['train_split'] +'.tar',
         test_data_dir = dataset['base_data_dir']+dataset['test_split']+'.tar',
         val_data_dir = dataset['val_data_dir']+dataset['val_split']+'.tar',
         hrtf_dir = hrtf,
         target_samplerate = dataset['sample_rate'],
         batch_size = batch_size,  # This way you get [batch_size x n_samples] (128*5)
         resample= dataset['resample'],
-        ipcl=True
+        ipcl=True,
+        random_shards=chosen_shards,
     )
     was.setup('ipcl_train')
 
-    train_loader = was.train_wds_loader(epoch_size=train_epoch_size)
+    train_loader = was.train_wds_loader(epoch_size=train_epoch_size) if steps is None else was.train_wds_loader()
     test_loader = was.train_wds_loader(epoch_size=test_epoch_size)
     val_loader = was.val_wds_loader(epoch_size=val_epoch_size)
 
@@ -217,14 +246,6 @@ def main(args):
             n_samples=n_samples
         ).float()
     learner = learner.to(device)
-
-    trainer = cfg['trainer']
-    # stepwise = True if trainer['method'] == 'stepwise' else False
-    steps = trainer['steps']
-    if steps == 0:
-        steps = None
-    else:
-        print(f'=> Using {steps} steps per loop')
 
     nr_epochs = trainer['epochs']
     save_freq = trainer['save_freq']
@@ -355,6 +376,7 @@ def main(args):
             optimizer, 
             best_top1,
             device,
+            save_freq=save_freq,
             steps=steps, 
             writer=writer)
 

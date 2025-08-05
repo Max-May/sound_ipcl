@@ -46,17 +46,20 @@ def ipcl_collate_fn(batch):
 class WebAudioSet(Dataset):
     def __init__(self, 
                 base_data_dir: str,
+                train_data_dir: str,
                 val_data_dir : str,
                 hrtf_dir: str,
                 target_samplerate: int = 48000,
                 batch_size: int = 32,
                 resample: bool = True,
                 ipcl: bool = False,
+                random_shards: bool = False,
                 test_data_dir = None,
                 debug=False
                 ):
         super().__init__()
         self.base_data_dir = base_data_dir
+        self.train_data_dir = train_data_dir
         self.test_data_dir = test_data_dir
         self.val_data_dir = val_data_dir
         self.hrtf = open_sofa(hrtf_dir)
@@ -64,18 +67,27 @@ class WebAudioSet(Dataset):
         self.batch_size = batch_size
         self.resample = resample
         self.ipcl = ipcl
+        self.random_shards = random_shards
         self.debug = debug
     
     
     def setup(self, stage: str):
         if stage == 'fit':
-            self.train_dataset = self.make_web_dataset(self.base_data_dir, shuffle=1000)
+            if len(self.random_shards) > 0:
+                path = [f"{self.base_data_dir}{sf:02d}.tar" for sf in self.random_shards]
+                self.train_dataset = self.make_web_dataset(path, shuffle=1000)
+            else:
+                self.train_dataset = self.make_web_dataset(self.train_data_dir, shuffle=1000)
             self.val_dataset = self.make_web_dataset(self.val_data_dir, shuffle=0)
         elif stage == 'inf':
             self.val_dataset = self.make_web_dataset(self.val_data_dir, shuffle=0)
         elif stage == 'ipcl_train':
-            self.train_dataset = self.make_web_dataset(self.base_data_dir, shuffle=1000)
-            self.test_dataset = self.make_web_dataset(self.base_data_dir, shuffle=1000)
+            if len(self.random_shards) > 0:
+                path = [f"{self.base_data_dir}{sf:02d}.tar" for sf in self.random_shards]
+                self.train_dataset = self.make_web_dataset(path, shuffle=1000)
+            else:
+                self.train_dataset = self.make_web_dataset(self.train_data_dir, shuffle=1000)
+            self.test_dataset = self.make_web_dataset(self.train_data_dir, shuffle=1000)
             self.val_dataset = self.make_web_dataset(self.val_data_dir, shuffle=0)
     
     def make_web_dataset(self, path, shuffle):
