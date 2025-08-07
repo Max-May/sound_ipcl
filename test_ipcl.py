@@ -25,7 +25,7 @@ def run_nx(args, cfg, val_loader, val_epoch_size, hrtf, ckpt_steps, embedding_di
     step_size = 400
     if isinstance(ckpt_steps[0], str):
         ckpt_steps = [int(step) for step in ckpt_steps]
-        
+
     if len(ckpt_steps) == 1:
         steps = ckpt_steps
     elif len(ckpt_steps) >= 2:
@@ -74,8 +74,8 @@ def run_nx(args, cfg, val_loader, val_epoch_size, hrtf, ckpt_steps, embedding_di
 
         ouptut['embedding'] = embeddings
         ouptut['labels'] = labels
-        save_checkpoint(ouptut, is_best=False, save_path=embedding_dir, fn='embeddings.pth')
-        print(f'=> Saved embeddings to "{os.path.join(embedding_dir, "embeddings.pth")}"')
+        save_checkpoint(ouptut, is_best=False, save_path=embedding_dir, fn=f'embeddings_{step}.pth')
+        print(f'=> Saved embeddings to "{os.path.join(embedding_dir, f"embeddings_{step}.pth")}"')
     
 
 
