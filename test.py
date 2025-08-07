@@ -103,6 +103,7 @@ def train(
             save_checkpoint({
                 'state_dict': learner.state_dict()
             }, is_best=False, save_path=save_path, fn=f'checkpoint_{total_counter}.pth')
+            print(f'=> Saved checkpoint for step: {total_counter}')
 
         if steps is not None and counter == steps:
             break
@@ -210,7 +211,7 @@ def main(args):
     chosen_shards = None
     if random_shards:
         nr_random_shards = dataset['nr_random_shards']
-        chosen_shards = np.random.choice(10, nr_random_shards, replace=False)
+        chosen_shards = np.random.choice(860, nr_random_shards, replace=False)
         print(f"=> Using {nr_random_shards} random shards: {chosen_shards}")
     train_epoch_size = nr_random_shards if random_shards else count_pattern_files(dataset['train_split'])
     val_epoch_size = count_pattern_files(dataset['val_split'])

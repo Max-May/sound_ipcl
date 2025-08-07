@@ -3,6 +3,7 @@ import shutil
 import time
 from datetime import datetime
 from pathlib import Path
+from typing import Union
 
 import numpy as np
 import torch
@@ -18,6 +19,112 @@ from dataloader.WebAudioSet import WebAudioSet
 from dataloader.dataset_functions import Transform
 from utils.knn import knn_monitor
 from utils.util import read_yaml, write_yaml, seed_all, count_pattern_files
+
+
+def run_nx(args, cfg, val_loader, val_epoch_size, hrtf, ckpt_steps, embedding_dir, device='cpu'):
+    step_size = 400
+    if isinstance(ckpt_steps[0], str):
+        ckpt_steps = [int(step) for step in ckpt_steps]
+        
+    if len(ckpt_steps) == 1:
+        steps = ckpt_steps
+    elif len(ckpt_steps) >= 2:
+        steps = np.arange(ckpt_steps[0], ckpt_steps[1] + step_size, step_size)
+
+    # Nr of samples for IPCL
+    n_samples = cfg['n_samples']
+
+    # Augmentation
+    transform = Transform(n_samples=n_samples, hrtf=hrtf, target_samplerate=48000)
+
+    # Encoder
+    _encoder = cfg['encoder']
+    print(f'=> Using encoder with arch: {_encoder["_arch_"]}')
+    if _encoder['block'].lower() == 'bottleneck':
+        block = Bottleneck
+    encoder = ResNet(
+        block=block,
+        layers=_encoder['layers'],
+        input_channels=_encoder['in_channels'],
+        num_classes=_encoder['out_channels'],
+        l2norm=_encoder['l2_norm']
+    ).float()
+
+    # IPCL Model (called learner in this strategy)
+    _learner = cfg['learner']
+    if _learner['_arch_'] == 'ipcl':
+        learner = IPCL(
+            base_encoder=encoder,
+            numTrainFiles=val_epoch_size*2000,
+            K=_learner['queue_size'],
+            T=_learner['temperature'],
+            out_dim=_learner['embedding_space'],
+            n_samples=n_samples
+        ).float()
+
+    for step in steps:
+        ckpt_fn = os.path.join(args.weights, f'checkpoint_{step}.pth')
+        print(f'=> Using {ckpt_fn} to initialize model')
+        learner = load_weights(learner, ckpt_fn, device=device)
+        learner = learner.to(device)
+
+        # Get embeddings
+        ouptut = {}
+        embeddings,labels = test_ipcl(learner, val_loader, n_samples, transform, device=device)
+
+        ouptut['embedding'] = embeddings
+        ouptut['labels'] = labels
+        save_checkpoint(ouptut, is_best=False, save_path=embedding_dir, fn='embeddings.pth')
+        print(f'=> Saved embeddings to "{os.path.join(embedding_dir, "embeddings.pth")}"')
+    
+
+
+def run_inf(args, cfg, val_loader, val_epoch_size, hrtf, embedding_dir, device='cpu'):
+    # Nr of samples for IPCL
+    n_samples = cfg['n_samples']
+
+    # Encoder
+    _encoder = cfg['encoder']
+    print(f'=> Using encoder with arch: {_encoder["_arch_"]}')
+    if _encoder['block'].lower() == 'bottleneck':
+        block = Bottleneck
+    encoder = ResNet(
+        block=block,
+        layers=_encoder['layers'],
+        input_channels=_encoder['in_channels'],
+        num_classes=_encoder['out_channels'],
+        l2norm=_encoder['l2_norm']
+    ).float()
+
+    # IPCL Model (called learner in this strategy)
+    _learner = cfg['learner']
+    if _learner['_arch_'] == 'ipcl':
+        learner = IPCL(
+            base_encoder=encoder,
+            numTrainFiles=val_epoch_size*2000,
+            K=_learner['queue_size'],
+            T=_learner['temperature'],
+            out_dim=_learner['embedding_space'],
+            n_samples=n_samples
+        ).float()
+    if args.weights:
+        print(f'=> Using {args.weights} to initialize model')
+        learner = load_weights(learner, args.weights, device=device)
+    else:
+        print('=> No weights file found, randomly initialize')
+    learner = learner.to(device)
+
+    # Augmentation
+    transform = Transform(n_samples=n_samples, hrtf=hrtf, target_samplerate=48000)
+
+    # Get embeddings
+    ouptut = {}
+    embeddings,labels = test_ipcl(learner, val_loader, n_samples, transform, device=device)
+
+    ouptut['embedding'] = embeddings
+    ouptut['labels'] = labels
+    save_checkpoint(ouptut, is_best=False, save_path=embedding_dir, fn='embeddings.pth')
+    print(f'=> Saved embeddings to "{os.path.join(embedding_dir, "embeddings.pth")}"')
 
 
 @torch.no_grad()
@@ -57,7 +164,9 @@ def main(args):
         cfg = read_yaml(args.config)
     except Exception as e:
         print(f'Need config file, use "-c config.yaml"\n{e}')
-        return None
+        raise TypeError
+
+    ckpt_steps = args.checkpoints
 
     # Seed everything for reproducibility
     seed = cfg['seed']
@@ -65,6 +174,7 @@ def main(args):
 
     experiment = cfg['name']
     run_id = datetime.now().strftime('%Y%m%d_%H%M%S')
+    embedding_dir = os.path.join('./results/embeddings', experiment, run_id)
 
     # CUDA for PyTorch
     gpu = cfg['gpu']
@@ -79,22 +189,6 @@ def main(args):
         curr_device = torch.cuda.current_device()
         print(f'[{torch.cuda.device(curr_device)}] name: "{torch.cuda.get_device_name(curr_device)}"')
 
-    # Nr of samples for IPCL
-    n_samples = cfg['n_samples']
-
-    # Encoder
-    _encoder = cfg['encoder']
-    print(f'=> Using encoder with arch: {_encoder["_arch_"]}')
-    if _encoder['block'].lower() == 'bottleneck':
-        block = Bottleneck
-    encoder = ResNet(
-        block=block,
-        layers=_encoder['layers'],
-        input_channels=_encoder['in_channels'],
-        num_classes=_encoder['out_channels'],
-        l2norm=_encoder['l2_norm']
-    ).float()
-
     # Dataset and loader
     dataset = cfg['dataset']
     hrtf = dataset['sofa_dir']
@@ -106,7 +200,8 @@ def main(args):
 
     # val_data_dir = dataset['val_data_dir']+dataset['val_split']+'.tar',
     was = WebAudioSet(
-        base_data_dir = dataset['base_data_dir']+dataset['train_split']+'.tar',
+        base_data_dir = dataset['base_data_dir'],
+        train_data_dir = dataset['base_data_dir'] + dataset['train_split'] +'.tar',
         test_data_dir = dataset['base_data_dir']+dataset['test_split']+'.tar',
         val_data_dir = dataset['base_data_dir']+dataset['test_split']+'.tar',
         hrtf_dir = hrtf,
@@ -121,36 +216,11 @@ def main(args):
     # test_loader = was.train_wds_loader(epoch_size=test_epoch_size)
     val_loader = was.val_wds_loader(epoch_size=val_epoch_size)
 
-    # IPCL Model (called learner in this strategy)
-    _learner = cfg['learner']
-    if _learner['_arch_'] == 'ipcl':
-        learner = IPCL(
-            base_encoder=encoder,
-            numTrainFiles=val_epoch_size*2000,
-            K=_learner['queue_size'],
-            T=_learner['temperature'],
-            out_dim=_learner['embedding_space'],
-            n_samples=n_samples
-        ).float()
-    if args.weights:
-        print(f'=> Using {args.weights} to initialize model')
-        learner = load_weights(learner, args.weights, device=device)
+    if len(ckpt_steps) > 0:
+        run_nx(args, cfg, val_loader, val_epoch_size, hrtf, ckpt_steps, embedding_dir, device=device)
     else:
-        print('=> No weights file found, randomly initialize')
-    learner = learner.to(device)
+        run_inf(args, cfg, val_loader, val_epoch_size, hrtf, embedding_dir, device=device)
 
-    # Augmentation
-    transform = Transform(n_samples=n_samples, hrtf=hrtf, target_samplerate=48000)
-
-    # Get embeddings
-    ouptut = {}
-    embeddings,labels = test_ipcl(learner, val_loader, n_samples, transform, device=device)
-
-    ouptut['embedding'] = embeddings
-    ouptut['labels'] = labels
-    save_checkpoint(ouptut, is_best=False, save_path=os.path.join('./results/embeddings', experiment, run_id), fn='embeddings_inf.pth')
-    print(f'=> Saved embeddings to "{os.path.join("./results/embeddings", experiment, run_id, "embeddings_inf.pth")}"')
-    
     print(f'Done inferencing!')
 
 
@@ -184,5 +254,8 @@ if __name__ == '__main__':
     args.add_argument('-w', '--weights', 
                     default=None, type=str,
                     help='path to weights file (default: None)')
+    args.add_argument('--checkpoints',
+                    default=None, nargs='*')
+
     args = args.parse_args()
     main(args)

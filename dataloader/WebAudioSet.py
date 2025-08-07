@@ -74,7 +74,7 @@ class WebAudioSet(Dataset):
     def setup(self, stage: str):
         if stage == 'fit':
             if len(self.random_shards) > 0:
-                path = [f"{self.base_data_dir}{sf:02d}.tar" for sf in self.random_shards]
+                path = [f"{self.base_data_dir}{sf:03d}.tar" for sf in self.random_shards]
                 self.train_dataset = self.make_web_dataset(path, shuffle=1000)
             else:
                 self.train_dataset = self.make_web_dataset(self.train_data_dir, shuffle=1000)
@@ -82,8 +82,8 @@ class WebAudioSet(Dataset):
         elif stage == 'inf':
             self.val_dataset = self.make_web_dataset(self.val_data_dir, shuffle=0)
         elif stage == 'ipcl_train':
-            if len(self.random_shards) > 0:
-                path = [f"{self.base_data_dir}{sf:02d}.tar" for sf in self.random_shards]
+            if self.random_shards is not None and len(self.random_shards) > 0:
+                path = [f"{self.base_data_dir}{sf:03d}.tar" for sf in self.random_shards]
                 self.train_dataset = self.make_web_dataset(path, shuffle=1000)
             else:
                 self.train_dataset = self.make_web_dataset(self.train_data_dir, shuffle=1000)
