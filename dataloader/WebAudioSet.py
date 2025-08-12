@@ -79,8 +79,10 @@ class WebAudioSet(Dataset):
             else:
                 self.train_dataset = self.make_web_dataset(self.train_data_dir, shuffle=1000)
             self.val_dataset = self.make_web_dataset(self.val_data_dir, shuffle=0)
+
         elif stage == 'inf':
             self.val_dataset = self.make_web_dataset(self.val_data_dir, shuffle=0)
+
         elif stage == 'ipcl_train':
             if self.random_shards is not None and len(self.random_shards) > 0:
                 path = [f"{self.base_data_dir}{sf:03d}.tar" for sf in self.random_shards]
@@ -88,6 +90,10 @@ class WebAudioSet(Dataset):
             else:
                 self.train_dataset = self.make_web_dataset(self.train_data_dir, shuffle=1000)
             self.test_dataset = self.make_web_dataset(self.train_data_dir, shuffle=1000)
+            self.val_dataset = self.make_web_dataset(self.val_data_dir, shuffle=0)
+
+        elif stage == 'ipcl_inf':
+            self.test_dataset = self.make_web_dataset(self.test_data_dir, shuffle=0)
             self.val_dataset = self.make_web_dataset(self.val_data_dir, shuffle=0)
     
     def make_web_dataset(self, path, shuffle):
@@ -117,6 +123,7 @@ class WebAudioSet(Dataset):
                 .batched(self.batch_size))
         return dataset
     
+    
     def train_wds_loader(self, epoch_size: int = None, nr_workers: int = 16, batch_size: int = None):
         if batch_size:
             sub_batch_size = batch_size
@@ -135,6 +142,26 @@ class WebAudioSet(Dataset):
         if epoch_size:
             loader = loader.with_epoch(epoch_size * 2000 // sub_batch_size)
         return loader
+
+    def test_wds_loader(self, epoch_size: int = None, nr_workers: int = 16, batch_size: int = None):
+        if batch_size:
+            sub_batch_size = batch_size
+        else:
+            sub_batch_size = self.batch_size
+
+        print('=> Setting up the test data loader')
+        loader = wds.WebLoader(
+            self.test_dataset, 
+            batch_size=None, 
+            num_workers=nr_workers, 
+            collate_fn=ipcl_collate_fn if self.ipcl else collate_fn
+            )
+        # Unbatch, shuffle between workers, then rebatch.
+        loader = loader.unbatched().shuffle(1000).batched(sub_batch_size)
+        if epoch_size:
+            loader = loader.with_epoch(epoch_size * 2000 // sub_batch_size)
+        return loader
+
 
     def val_wds_loader(self, epoch_size: int = None, nr_workers: int = 16, batch_size: int = None):
         if batch_size:
